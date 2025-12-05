@@ -12,3 +12,10 @@ class State:
     halfmove_clock: int
     fullmove_number: int
     history: List[Tuple[Any, ...]]
+
+    def get_piece_at(self, square):
+        """Find which piece occupies a square"""
+        mask = 1 << square
+        for piece in ALL_PIECES:
+            if self.bitboards.get(piece, 0) & mask: return piece
+        return None

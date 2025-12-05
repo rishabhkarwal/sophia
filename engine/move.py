@@ -38,3 +38,33 @@ class Move:
     def is_quiet(self) -> bool:
         """True if move has no special flags"""
         return self.flag == QUIET
+
+    def __str__(self):
+        """Convert move object to string e.g. 'e2e4'"""
+        # Handle Castling Notation
+        if self.flag & CASTLE:
+            # If target file > start file (e.g., e1->g1), it's Kingside
+            if (self.target % 8) > (self.start % 8):
+                return "O-O"
+            else:
+                return "O-O-O"
+
+        files = "abcdefgh"
+        
+        # Decode Start Square
+        f_file, f_rank = self.start % 8, self.start // 8
+        start_sq = f"{files[f_file]}{f_rank + 1}"
+        
+        # Decode Target Square
+        t_file, t_rank = self.target % 8, self.target // 8
+        target_sq = f"{files[t_file]}{t_rank + 1}"
+        
+        move_str = start_sq + target_sq
+        
+        # Append promotion character if applicable
+        if self.flag & PROMOTION:
+            # Default to 'q' if promo_type is None (safety check)
+            p_char = self.promo_type if self.promo_type else 'q'
+            move_str += p_char.lower()
+            
+        return move_str

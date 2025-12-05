@@ -119,7 +119,7 @@ def make_move(state: State, move: Move) -> State:
     # fullmove number increments after black's turn
     new_fullmove = state.fullmove_number + (1 if state.player == BLACK else 0)
     
-    return State(new_bitboards, not(state.player), new_castling, new_ep, new_halfmove, new_fullmove, state.history)
+    return State(new_bitboards, not(state.player), new_castling, new_ep, new_halfmove, new_fullmove, state.history + [str(move)])
 
 def is_in_check(state: State, colour: int) -> int:
     """Check if the king of the specified colour is under attack"""
@@ -146,7 +146,7 @@ def is_legal(state: State, move: Move) -> bool:
     # check if our king is in check in the resulting position
     return not is_in_check(new_state, state.player)
 
-def generate_legal_moves(state: State) -> list:
+def get_legal_moves(state: State) -> list:
     """Generate all legal moves for the current position"""
     pseudo_legal = generate_moves(state)
     legal = []
