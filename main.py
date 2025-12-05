@@ -1,60 +1,16 @@
 from engine.game import Game
+from engine.bot import RandomBot, MaterialBot
+from engine.constants import WHITE, BLACK
 
 if __name__ == "__main__":
-    game = Game()
-    #results = game.test(100)
-    game.run()
-    #print(results)
+    game = Game(MaterialBot(WHITE), RandomBot(BLACK))
+    results = game.test(1000)
+    print(results)
 
 """
-Console Output:
+Testing: 100%|---| 1000/1000 [01:44<00:00,  9.56game/s, => White: 243, Black: 1, Draw: 756]
 
-Testing
-
-Testing: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 100/100 [00:19<00:00,  5.26game/s, => White: 6, Black: 10, Draw: 84]
-
-White: 6
-Black: 10
-Draw: 84
-
-Running (looks better in terminal)
-
-White 
-
-  ╭───┬───┬───┬───┬───┬───┬───┬───╮
-8 │ ♖ │   │ ♗ │   │   │ ♗ │ ♖ │   │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-7 │   │ ♙ │   │ ♘ │   │   │ ♙ │ ♙ │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-6 │   │   │   │   │ ♔ │   │   │ ♝ │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-5 │   │   │ ♙ │ ♙ │ ♙ │ ♙ │   │   │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-4 │ ♙ │ ♕ │   │   │   │   │ ♟ │   │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-3 │   │   │ ♞ │ ♟ │   │ ♟ │   │ ♟ │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-2 │ ♟ │   │ ♟ │   │ ♟ │ ♚ │ ♝ │   │
-  ├───┼───┼───┼───┼───┼───┼───┼───┤
-1 │ ♜ │   │   │   │ ♛ │   │ ♞ │ ♜ │
-  ╰───┴───┴───┴───┴───┴───┴───┴───╯
-    a   b   c   d   e   f   g   h
-
-
-  1. f2f3   d7d6
-  2. h2h3   c7c5
-  3. e1f2   f7f5
-  4. d2d3   a7a5
-  5. g2g4   e7e5
-  6. f2e1   f8e7
-  7. e1f2   e8f7
-  8. c1f4   g8h6
-  9. f4g5   f7e6
- 10. b1c3   e7f8
- 11. g5d2   b8d7
- 12. b2b4   a5a4
- 13. f1g2   d8b6
- 14. d1c1   d6d5
- 15. c1e1   h8g8
- 16. d2h6   b6b4
+White: 24.3%
+Black: 0.1%
+Draw: 75.6%
 """

@@ -6,19 +6,17 @@ from .move_exec import make_move, is_in_check, get_legal_moves
 from .constants import WHITE, BLACK
 
 from .gui import GUI
-from .bot import RandomBot
 
 class Game:
-    DELAY = 0.1
-    def __init__(self, fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'):
+    def __init__(self, white_player, black_player, fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'):
         self.state = load_from_fen(fen)
         self.gui = GUI()
 
-        self.white_player, self.black_player = RandomBot(WHITE), RandomBot(BLACK)
+        self.white_player, self.black_player = white_player, black_player
 
         self.fen = fen
 
-    def run(self, silent=False):
+    def run(self, delay=0.0, silent=False):
         winner = None
         reason = None
         while 1:
@@ -52,7 +50,7 @@ class Game:
                 reason = "50-move rule"
                 break
 
-            if not silent: time.sleep(self.DELAY) # so the game is watchable
+            if not silent: time.sleep(delay) # so the game is watchable
 
             move = (self.white_player if is_white else self.black_player).get_best_move(self.state)
 
@@ -65,17 +63,17 @@ class Game:
         def reset():
             self.state = load_from_fen(self.fen)
 
-        def format_results(results):
+        def format_results(results, percentage=False):
             lines = []
-            lines.append(f"White: {results[WHITE]}")
-            lines.append(f"Black: {results[BLACK]}")
-            lines.append(f"Draw: {results[None]}")
+            for metric, result in {"White" : WHITE, "Black" : BLACK, "Draw" : None}.items():
+                lines.append(f'{metric}: {results[result] if not percentage else str(round(results[result] / (i + 1) * 100, 2)) + "%"}')
+
             return "\n".join(lines)
 
         results = {state : 0 for state in [WHITE, BLACK, None]}
 
         with tqdm(total=n, desc=f"Testing", unit="game") as pbar:
-            for _ in range(n):
+            for i in range(n):
                 result, _ = self.run(silent=True)
                 results[result] += 1
 
@@ -86,4 +84,4 @@ class Game:
 
         print()
 
-        return format_results(results)
+        return format_results(results, percentage=True)
