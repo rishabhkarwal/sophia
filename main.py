@@ -3,16 +3,17 @@ from engine.bot import *
 from engine.constants import WHITE, BLACK
 
 if __name__ == "__main__":
-    game = Game(PositionalBot(WHITE), MaterialBot(BLACK))
-    results = game.test(10000)
+    game = Game(white_player=SearchTreeBot(WHITE), black_player=AlphaBetaBot(BLACK, depth=5))
+    results = game.test(100)
     print(results)
 
+    #game.run(delay=2)
+
 """
-Testing: 100%|---| 10000/10000 [17:36<00:00,  9.46game/s, => White (PositionalBot): 427, Black (MaterialBot): 602, Draw: 8971]
+Testing:  67%|---                                           | 67/100 [=> White (SearchTreeBot): 0, Black (AlphaBetaBot): 27, Draw: 40]
 
-White (PositionalBot): 4.27%
-Black (MaterialBot): 6.02%
-Draw: 89.71%
-
-Rather counter-intuitive result; but this is likely due to the fact it's only a 1-ply search and so the advantage isn't clear
+Depth of 5 proven to perform better than depth 3
+Have implemented alpha-beta pruning (& move-ordering)
+Captures and promotions checked first
+This doesn't impact chosen move; just the time it takes -> pruning is more efficient
 """

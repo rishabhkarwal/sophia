@@ -1,4 +1,4 @@
-from .move_exec import get_legal_moves, make_move
+from .move_exec import get_legal_moves, make_move, is_in_check
 from .precomputed import init_tables
 from .constants import ALL_PIECES, WHITE, BLACK
 from .utils import BitBoard
@@ -167,3 +167,119 @@ class PositionalBot(MaterialBot): # as best move return is the same
                     score -= (material + pos_score)
 
         return score if self.colour == WHITE else -score
+
+class SearchTreeBot(PositionalBot): # will evaluate material and position
+    def __init__(self, colour, depth=3):
+        super().__init__(colour)
+        self.depth = depth
+
+    def get_best_move(self, state):
+        
+        
+        moves = get_legal_moves(state)
+        random.shuffle(moves) 
+
+        best_move = moves[0]
+        best_value = -float('inf')
+
+        for move in moves:
+            next_state = make_move(state, move)
+            # start the recursive search
+            # -search because the opponent tries to minimise OUR score | max(a, b) = -min(-a, -b)
+            value = -self.negamax(next_state, self.depth - 1)
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+                
+        return best_move
+
+    def negamax(self, state, depth):
+        if depth == 0:
+            score = self.evaluate(state)
+            if state.player != self.colour: # fix !
+                return -score
+            return score
+            
+        moves = get_legal_moves(state)
+
+        if not moves:
+            if is_in_check(state, state.player):
+                return -float('inf') # checkmate
+            else:
+                return 0 #stalemate
+
+        best_value = -float('inf')
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            value = -self.negamax(next_state, depth - 1)
+            best_value = max(best_value, value)
+            
+        return best_value
+
+class AlphaBetaBot(PositionalBot):
+    def __init__(self, colour, depth=4):
+        super().__init__(colour)
+        self.depth = depth
+
+    def get_best_move(self, state):
+        moves = get_legal_moves(state)
+        if not moves: return None
+        
+        moves.sort(key=lambda m: (m.is_capture, m.is_promotion), reverse=True)
+        
+        best_move = moves[0]
+        best_value = -float('inf')
+        alpha = -float('inf')
+        beta = float('inf')
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            
+            # -negamax with alpha-beta: -beta as alpha, -alpha as beta
+            value = -self.alpha_beta(next_state, self.depth - 1, -beta, -alpha)
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+            
+            if value > alpha:
+                alpha = value
+
+        return best_move
+
+    def alpha_beta(self, state, depth, alpha, beta):
+        if depth == 0:
+            score = self.evaluate(state)
+            if state.player != self.colour:
+                return -score
+            return score
+        
+        moves = get_legal_moves(state)
+        
+        if not moves:
+            if is_in_check(state, state.player):
+                return -10000000 + depth # prefer faster mates (higher score)
+            return 0 # stalemate
+
+        # sort moves to improve pruning efficiency
+        moves.sort(key=lambda m: (m.is_capture, m.is_promotion), reverse=True)
+        
+        best_value = -float('inf')
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            if value >= beta:
+                # beta Cutoff: opponent has a better move elsewhere, so they won't allow this
+                return beta
+            
+            if value > best_value:
+                best_value = value
+                
+            if value > alpha:
+                alpha = value
+                
+        return best_value
