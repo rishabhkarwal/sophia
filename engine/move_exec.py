@@ -146,9 +146,9 @@ def is_legal(state: State, move: Move) -> bool:
     # check if our king is in check in the resulting position
     return not is_in_check(new_state, state.player)
 
-def get_legal_moves(state: State) -> list:
+def get_legal_moves(state: State, captures_only : bool = False) -> list:
     """Generate all legal moves for the current position"""
-    pseudo_legal = generate_moves(state)
+    pseudo_legal = generate_moves(state, captures_only=captures_only)
     legal = []
     
     for move in pseudo_legal:

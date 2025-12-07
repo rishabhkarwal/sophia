@@ -1,3 +1,4 @@
+"""Move generation module for pseudo-legal moves."""
 from typing import List, Dict
 
 from .constants import (
@@ -19,7 +20,7 @@ from .precomputed import (
 )
 from .utils import BitBoard
 
-def generate_moves(state: State) -> List[Move]:
+def generate_moves(state: State, captures_only=False) -> List[Move]:
     """Generate all pseudo-legal moves for the current position"""
     moves: List[Move] = []
     
@@ -36,15 +37,16 @@ def generate_moves(state: State) -> List[Move]:
         opponent = state.bitboards["white"]
         P, N, B, R, Q, K = BLACK_PIECES
         pawn_attacks = BLACK_PAWN_ATTACKS
-    
+
     # generate moves for each piece type
-    _gen_pawn_moves(state, moves, P, state.player, all_pieces, opponent, pawn_attacks)
-    _gen_knight_moves(state.bitboards[N], moves, active, opponent)
-    _gen_king_moves(state.bitboards[K], moves, active, opponent)
-    _gen_castling_moves(state, moves, all_pieces)
-    _gen_bishop_moves(state.bitboards[B], moves, all_pieces, active, opponent)
-    _gen_rook_moves(state.bitboards[R], moves, all_pieces, active, opponent)
-    _gen_queen_moves(state.bitboards[Q], moves, all_pieces, active, opponent)
+    _gen_pawn_moves(state, moves, P, state.player, all_pieces, opponent, pawn_attacks, captures_only)
+    _gen_knight_moves(state.bitboards[N], moves, active, opponent, captures_only)
+    _gen_king_moves(state.bitboards[K], moves, active, opponent, captures_only)
+    # castling is never a capture
+    if not captures_only: _gen_castling_moves(state, moves, all_pieces)
+    _gen_bishop_moves(state.bitboards[B], moves, all_pieces, active, opponent, captures_only)
+    _gen_rook_moves(state.bitboards[R], moves, all_pieces, active, opponent, captures_only)
+    _gen_queen_moves(state.bitboards[Q], moves, all_pieces, active, opponent, captures_only)
     
     return moves
 
@@ -117,7 +119,7 @@ def is_square_attacked(state: State, sq: int, colour: int) -> bool:
     
     return False
 
-def _gen_pawn_moves(state: State, moves: List[Move], pawn_key: str, colour: int, all_pieces: int, enemy: int, attack_table: List[int]):
+def _gen_pawn_moves(state: State, moves: List[Move], pawn_key: str, colour: int, all_pieces: int, enemy: int, attack_table: List[int], captures_only: bool):
     """Generate pawn moves including pushes, captures, en passant and promotions"""
     pawns = state.bitboards[pawn_key]
     
@@ -143,19 +145,20 @@ def _gen_pawn_moves(state: State, moves: List[Move], pawn_key: str, colour: int,
         # double pushes (from rank 7 to rank 5, must pass through rank 6)
         double_push = ((single_push & start_rank_mask) >> 8) & ~all_pieces
     
-    # process single pushes
-    for to_sq in BitBoard.bit_scan(single_push):
-        from_sq = to_sq - direction
-        # check for promotion
-        if (colour == WHITE and to_sq >= promotion_rank) or (colour == BLACK and to_sq <= promotion_rank):
-            _add_promotions(moves, from_sq, to_sq, QUIET)
-        else:
+    # process single pushes - SKIP IF CAPTURES ONLY
+    if not captures_only:
+        for to_sq in BitBoard.bit_scan(single_push):
+            from_sq = to_sq - direction
+            # check for promotion
+            if (colour == WHITE and to_sq >= promotion_rank) or (colour == BLACK and to_sq <= promotion_rank):
+                _add_promotions(moves, from_sq, to_sq, QUIET)
+            else:
+                moves.append(Move(from_sq, to_sq, QUIET))
+        
+        # process double pushes - SKIP IF CAPTURES ONLY
+        for to_sq in BitBoard.bit_scan(double_push):
+            from_sq = to_sq - (2 * direction)
             moves.append(Move(from_sq, to_sq, QUIET))
-    
-    # process double pushes
-    for to_sq in BitBoard.bit_scan(double_push):
-        from_sq = to_sq - (2 * direction)
-        moves.append(Move(from_sq, to_sq, QUIET))
     
     # process captures
     for from_sq in BitBoard.bit_scan(pawns):
@@ -182,16 +185,20 @@ def _add_promotions(moves: List[Move], from_sq: int, to_sq: int, base_flag: int)
     moves.append(Move(from_sq, to_sq, flag, promo_type='b'))
     moves.append(Move(from_sq, to_sq, flag, promo_type='n'))
 
-def _gen_knight_moves(pieces: int, moves: List[Move], all_pieces: int, enemy: int):
+def _gen_knight_moves(pieces: int, moves: List[Move], active: int, enemy: int, captures_only: bool):
     """Generate knight moves using precomputed attack table"""
     for from_sq in BitBoard.bit_scan(pieces):
-        targets = KNIGHT_ATTACKS[from_sq] & ~all_pieces
+        targets = KNIGHT_ATTACKS[from_sq] & ~active
+        if captures_only:
+            targets &= enemy
         _append_moves(moves, from_sq, targets, enemy)
 
-def _gen_king_moves(pieces: int, moves: List[Move], all_pieces: int, enemy: int):
+def _gen_king_moves(pieces: int, moves: List[Move], active: int, enemy: int, captures_only: bool):
     """Generate king moves using precomputed attack table"""
     for from_sq in BitBoard.bit_scan(pieces):
-        targets = KING_ATTACKS[from_sq] & ~all_pieces
+        targets = KING_ATTACKS[from_sq] & ~active
+        if captures_only:
+            targets &= enemy
         _append_moves(moves, from_sq, targets, enemy)
 
 def _gen_castling_moves(state: State, moves: List[Move], all_pieces: int):
@@ -233,27 +240,33 @@ def _gen_castling_moves(state: State, moves: List[Move], all_pieces: int):
                 if not is_square_attacked(state, E8, opponent) and not is_square_attacked(state, D8, opponent) and not is_square_attacked(state, C8, opponent):
                     moves.append(Move(E8, C8, CASTLE))
 
-def _gen_bishop_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int):
+def _gen_bishop_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int, captures_only: bool):
     """Generate bishop moves using precomputed lookup"""
     for from_sq in BitBoard.bit_scan(pieces):
         mask = BISHOP_MASKS[from_sq]
         targets = BISHOP_TABLE[(from_sq, all_pieces & mask)] & ~active
+        if captures_only:
+            targets &= enemy
         _append_moves(moves, from_sq, targets, enemy)
 
-def _gen_rook_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int):
+def _gen_rook_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int, captures_only: bool):
     """Generate rook moves using precomputed lookup"""
     for from_sq in BitBoard.bit_scan(pieces):
         mask = ROOK_MASKS[from_sq]
         targets = ROOK_TABLE[(from_sq, all_pieces & mask)] & ~active
+        if captures_only:
+            targets &= enemy
         _append_moves(moves, from_sq, targets, enemy)
 
-def _gen_queen_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int):
+def _gen_queen_moves(pieces: int, moves: List[Move], all_pieces: int, active: int, enemy: int, captures_only: bool):
     """Generate queen moves combining orthogonal and diagonal movement"""
     for from_sq in BitBoard.bit_scan(pieces):
         # combine rook and bishop attacks
         r_mask = ROOK_MASKS[from_sq]
         b_mask = BISHOP_MASKS[from_sq]
         targets = (ROOK_TABLE[(from_sq, all_pieces & r_mask)] | BISHOP_TABLE[(from_sq, all_pieces & b_mask)]) & ~active
+        if captures_only:
+            targets &= enemy
         _append_moves(moves, from_sq, targets, enemy)
 
 def _append_moves(moves: List[Move], from_sq: int, targets_bb: int, enemy: int):

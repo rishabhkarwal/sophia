@@ -260,7 +260,7 @@ class AlphaBetaBot(PositionalBot):
         
         if not moves:
             if is_in_check(state, state.player):
-                return -10000000 + depth # prefer faster mates (higher score)
+                return -100000 + depth # prefer faster mates (higher score)
             return 0 # stalemate
 
         # sort moves to improve pruning efficiency
@@ -273,7 +273,7 @@ class AlphaBetaBot(PositionalBot):
             value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
             
             if value >= beta:
-                # beta Cutoff: opponent has a better move elsewhere, so they won't allow this
+                # beta cutoff: opponent has a better move elsewhere, so they won't allow this
                 return beta
             
             if value > best_value:
@@ -283,3 +283,52 @@ class AlphaBetaBot(PositionalBot):
                 alpha = value
                 
         return best_value
+
+class QuiescenceBot(AlphaBetaBot):
+    def alpha_beta(self, state, depth, alpha, beta):    
+        if depth == 0:
+            return self.quiescence(state, alpha, beta)
+        
+        moves = get_legal_moves(state)
+        
+        if not moves:
+            if is_in_check(state, state.player):
+                return -100000 + depth
+            return 0
+
+        moves.sort(key=lambda m: (m.is_capture, m.is_promotion), reverse=True)
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            if value >= beta:
+                return beta
+            if value > alpha:
+                alpha = value
+                
+        return alpha
+
+    def quiescence(self, state, alpha, beta):
+        base_eval = self.evaluate(state)
+        if state.player != self.colour:
+            base_eval = -base_eval
+
+        if base_eval >= beta:
+            return beta
+        
+        if base_eval > alpha:
+            alpha = base_eval
+            
+        capture_moves = get_legal_moves(state, captures_only=True)
+    
+        for move in capture_moves:
+            next_state = make_move(state, move)
+            score = -self.quiescence(next_state, -beta, -alpha)
+            
+            if score >= beta:
+                return beta
+            if score > alpha:
+                alpha = score
+                
+        return alpha

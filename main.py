@@ -3,17 +3,14 @@ from engine.bot import *
 from engine.constants import WHITE, BLACK
 
 if __name__ == "__main__":
-    game = Game(white_player=SearchTreeBot(WHITE), black_player=AlphaBetaBot(BLACK, depth=5))
+    game = Game(white_player=QuiescenceBot(WHITE, depth=3), black_player=AlphaBetaBot(BLACK, depth=3))
     results = game.test(100)
     print(results)
 
-    #game.run(delay=2)
+    #game.run(delay=0)
 
 """
-Testing:  67%|---                                           | 67/100 [=> White (SearchTreeBot): 0, Black (AlphaBetaBot): 27, Draw: 40]
+Testing:  35%|---                                | 35/100 [5:30:59<10:14:42, 567.42s/game, => White (QuiescenceBot): 35, Black (AlphaBetaBot): 0, Draw: 0]
 
-Depth of 5 proven to perform better than depth 3
-Have implemented alpha-beta pruning (& move-ordering)
-Captures and promotions checked first
-This doesn't impact chosen move; just the time it takes -> pruning is more efficient
+Continues searching a 'noisy' position until it becomes 'quiet' -> helps tactics from being missed
 """
