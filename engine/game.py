@@ -30,8 +30,8 @@ class Game:
             is_white = self.state.player == WHITE
 
             if not silent:
-                turn_color = "White" if is_white else "Black"
-                check_msg = "| Check" if is_check else ""
+                turn_color = f"White | {self.white_player}" if is_white else f"Black | {self.black_player}"
+                check_msg = " | Check" if is_check else ""
                 print(f"{turn_color} {check_msg}\n")
 
             if not silent: self.gui.print_board(self.state)

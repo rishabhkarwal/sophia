@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 from .constants import ALL_PIECES, WHITE_PIECES, BLACK_PIECES
 
@@ -12,6 +12,13 @@ class State:
     halfmove_clock: int
     fullmove_number: int
     history: List[Tuple[Any, ...]]
+    hash: Optional[int] = None 
+
+    def __post_init__(self):
+        """Automatically compute hash if it wasn't provided during initialisation"""
+        if self.hash is None:
+            from .zobrist import compute_hash
+            self.hash = compute_hash(self)
 
     def get_piece_at(self, square):
         """Find which piece occupies a square"""
