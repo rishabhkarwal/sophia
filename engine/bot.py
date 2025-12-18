@@ -293,6 +293,115 @@ class AlphaBetaBot(PositionalBot):
                 
         return best_value
 
+class AlphaBetaTTBot(PositionalBot):
+    def __init__(self, colour, depth=4, tt_size_mb=64):
+        super().__init__(colour)
+        self.depth = depth
+        self.nodes_searched = 0
+        self.tt = TranspositionTable(tt_size_mb)
+
+    def get_best_move(self, state):
+        self.nodes_searched = 0
+
+        moves = get_legal_moves(state)
+        if not moves: return None
+        
+        tt_entry = self.tt.probe(state.hash)
+        tt_move = tt_entry.best_move if tt_entry else None
+
+        moves.sort(key=lambda m: (
+            m == tt_move, 
+            m.is_capture, 
+            m.is_promotion
+        ), reverse=True)
+        
+        best_move = moves[0]
+        best_value = -float('inf')
+        alpha = -float('inf')
+        beta = float('inf')
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            
+            value = -self.alpha_beta(next_state, self.depth - 1, -beta, -alpha)
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+            
+            if value > alpha:
+                alpha = value
+
+        self.tt.store(state.hash, self.depth, best_value, FLAG_EXACT, best_move)
+
+        return best_move
+
+    def alpha_beta(self, state, depth, alpha, beta):
+        self.nodes_searched += 1
+
+        tt_entry = self.tt.probe(state.hash)
+        if tt_entry and tt_entry.depth >= depth:
+
+            if tt_entry.flag == FLAG_EXACT:
+                return tt_entry.score
+            elif tt_entry.flag == FLAG_LOWERBOUND:
+                alpha = max(alpha, tt_entry.score)
+            elif tt_entry.flag == FLAG_UPPERBOUND:
+                beta = min(beta, tt_entry.score)
+            
+            if alpha >= beta:
+                return tt_entry.score
+
+        if depth == 0:
+            score = self.evaluate(state)
+
+            if state.player != self.colour:
+                return -score
+            return score
+        
+        moves = get_legal_moves(state)
+        
+        if not moves:
+            if is_in_check(state, state.player):
+                return -100000 + depth # Checkmate
+            return 0 # Stalemate
+
+        tt_move = tt_entry.best_move if tt_entry else None
+
+        moves.sort(key=lambda m: (
+            m == tt_move, 
+            m.is_capture, 
+            m.is_promotion
+        ), reverse=True)
+        
+        best_value = -float('inf')
+        best_move = None
+        alpha_orig = alpha
+        
+        for move in moves:
+            next_state = make_move(state, move)
+            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            if value >= beta:
+                self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
+                return beta
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+                
+            if value > alpha:
+                alpha = value
+        
+        if best_value <= alpha_orig:
+            flag = FLAG_UPPERBOUND
+        else:
+            flag = FLAG_EXACT
+            
+        self.tt.store(state.hash, depth, best_value, flag, best_move)
+                
+        return best_value
+
 class QuiescenceBot(AlphaBetaBot):
     def alpha_beta(self, state, depth, alpha, beta):   
         self.nodes_searched += 1 
