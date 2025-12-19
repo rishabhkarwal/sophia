@@ -251,8 +251,12 @@ class AlphaBetaBot(PositionalBot):
         for move in moves:
             next_state = make_move(state, move)
             
-            # -negamax with alpha-beta: -beta as alpha, -alpha as beta
-            value = -self.alpha_beta(next_state, self.depth - 1, -beta, -alpha)
+            # Check extension: If we give check, extend search by 1 ply
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+
+            value = -self.alpha_beta(next_state, self.depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -289,7 +293,14 @@ class AlphaBetaBot(PositionalBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if depth > 0: # Only extend if we aren't already at horizon to prevent explosion
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 # beta cutoff: opponent has a better move elsewhere, so they won't allow this
@@ -333,7 +344,12 @@ class AlphaBetaTTBot(PositionalBot):
         for move in moves:
             next_state = make_move(state, move)
             
-            value = -self.alpha_beta(next_state, self.depth - 1, -beta, -alpha)
+            # Check extension
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+                
+            value = -self.alpha_beta(next_state, self.depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -393,7 +409,14 @@ class AlphaBetaTTBot(PositionalBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            # Check extension
+            extension = 0
+            if depth > 0:
+                 if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
@@ -436,7 +459,14 @@ class QuiescenceBot(AlphaBetaBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            # Check extension
+            extension = 0
+            if depth > 0: # Only extend if we aren't at the leaf
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 return beta
@@ -529,7 +559,13 @@ class IterativeDeepeningBot(QuiescenceBot):
                 raise TimeoutError()
                 
             next_state = make_move(state, move)
-            value = -self.alpha_beta_timed(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+
+            value = -self.alpha_beta_timed(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -566,7 +602,14 @@ class IterativeDeepeningBot(QuiescenceBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta_timed(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if depth > 0:
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta_timed(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 return beta
@@ -637,7 +680,13 @@ class TranspositionBot(PositionalBot):
                 raise TimeoutError()
                 
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -659,7 +708,7 @@ class TranspositionBot(PositionalBot):
         if is_threefold_repetition(state):
             return 0
 
-        # transposition Table Lookup
+        # transposition table lookup
         tt_entry = self.tt.probe(state.hash)
         if tt_entry and tt_entry.depth >= depth:
             if tt_entry.flag == FLAG_EXACT:
@@ -702,7 +751,14 @@ class TranspositionBot(PositionalBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            
+            # Check extension
+            extension = 0
+            if depth > 0:
+                 if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 # store LOWERBOUND (beta cutoff)
@@ -773,7 +829,7 @@ class KillerBot(PositionalBot):
 
     def store_killer(self, depth, move):
         """Stores a quiet move that caused a beta cutoff"""
-        if move.is_capture: return # Only track quiet killer moves
+        if move.is_capture: return # We only track quiet killer moves
 
         # If move is already the primary killer, do nothing
         if self.killer_moves[depth][0] == move:
@@ -838,7 +894,13 @@ class KillerBot(PositionalBot):
                 raise TimeoutError()
                 
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -902,7 +964,14 @@ class KillerBot(PositionalBot):
         
         for move in moves:
             next_state = make_move(state, move)
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+
+            # Check extension
+            extension = 0
+            if depth > 0:
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 # Update TT and Killer Moves
