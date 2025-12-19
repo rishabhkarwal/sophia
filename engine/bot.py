@@ -1,6 +1,6 @@
 from .move_exec import get_legal_moves, make_move, is_in_check, is_threefold_repetition
 from .precomputed import init_tables
-from .constants import ALL_PIECES, WHITE, BLACK
+from .constants import ALL_PIECES, WHITE, BLACK, WHITE_PIECES, BLACK_PIECES
 from .utils import BitBoard
 
 import random
@@ -790,3 +790,159 @@ class KillerBot(PositionalBot):
                 alpha = score
                 
         return alpha
+
+class HistoryBot(KillerBot):
+    """
+    Adds history heuristic to killer move bot for better ordering of quiet moves
+    and MVV-LVA for capture ordering !
+    """
+    def __init__(self, colour, time_limit=2.0, tt_size_mb=64):
+        super().__init__(colour, time_limit, tt_size_mb)
+        # history table: 64x64 array [from_sq][to_sq]
+        self.history_table = [[0] * 64 for _ in range(64)]
+
+    def store_history(self, move, depth):
+        """Update history score for a quiet move causing a cutoff"""
+        if move.is_capture: return
+        self.history_table[move.start][move.target] += depth * depth
+
+    def get_mvv_lva_score(self, state, move):
+        """
+        Calculate MVV-LVA score for a capture move.
+        Returns: (10 * Victim Value) - Aggressor Value
+        """
+        if not move.is_capture: return 0
+        
+        victim_val = 0
+        aggressor_val = 0
+        
+        target_mask = 1 << move.target
+        start_mask = 1 << move.start
+        
+        # Determine piece types by checking bitboards
+        if state.player == WHITE:
+            # Aggressor is White
+            for p in WHITE_PIECES:
+                if state.bitboards.get(p, 0) & start_mask:
+                    aggressor_val = self.VALUES[p]
+                    break
+            # Victim is Black
+            for p in BLACK_PIECES:
+                if p != 'k':
+                    if state.bitboards.get(p, 0) & target_mask:
+                        victim_val = self.VALUES[p.upper()]
+                        break
+        else:
+            # Aggressor is Black
+            for p in BLACK_PIECES:
+                if state.bitboards.get(p, 0) & start_mask:
+                    aggressor_val = self.VALUES[p.upper()]
+                    break
+            # Victim is White
+            for p in WHITE_PIECES:
+                if p != 'K':
+                    if state.bitboards.get(p, 0) & target_mask:
+                        victim_val = self.VALUES[p]
+                        break
+                
+        # En Passant check: if is a capture but no piece at target, victim is pawn
+        if victim_val == 0:
+            victim_val = 100 # Pawn value
+            
+        return (10 * victim_val) - aggressor_val
+
+    def alpha_beta(self, state, depth, alpha, beta):
+        self.nodes_searched += 1
+        if (self.nodes_searched & 2047) == 0:
+            if time.time() - self.start_time > self.time_limit:
+                raise TimeoutError()
+        
+        if is_threefold_repetition(state):
+            return 0
+
+        tt_entry = self.tt.probe(state.hash)
+        if tt_entry and tt_entry.depth >= depth:
+            if tt_entry.flag == FLAG_EXACT:
+                return tt_entry.score
+            elif tt_entry.flag == FLAG_LOWERBOUND:
+                alpha = max(alpha, tt_entry.score)
+            elif tt_entry.flag == FLAG_UPPERBOUND:
+                beta = min(beta, tt_entry.score)
+            
+            if alpha >= beta:
+                return tt_entry.score
+
+        if depth <= 0:
+            return self.quiescence(state, alpha, beta)
+
+        moves = get_legal_moves(state)
+        
+        if not moves:
+            if is_in_check(state, state.player):
+                return -100000 + depth
+            return 0 
+
+        tt_move = tt_entry.best_move if tt_entry else None
+        
+        killer_1 = self.killer_moves[depth][0]
+        killer_2 = self.killer_moves[depth][1]
+
+        # Improved Move Ordering:
+        # 1. TT Move
+        # 2. Captures sorted by MVV-LVA
+        # 3. Killer Moves
+        # 4. History Heuristic (Quiet moves)
+        # 5. Rest
+        
+        def move_score(m):
+            if m == tt_move:
+                return 10000000 # Highest priority
+            
+            if m.is_capture:
+                # MVV-LVA score range roughly -20000 to +200000
+                # Pawn takes Queen: 9000 - 100 = 8900 (way cooler)
+                # Queen takes Pawn: 1000 - 900 = 100
+                return 1000000 + self.get_mvv_lva_score(state, m)
+            
+            if m == killer_1: return 900000
+            if m == killer_2: return 800000
+            
+            return self.history_table[m.start][m.target]
+
+        moves.sort(key=move_score, reverse=True)
+
+        best_value = -float('inf')
+        best_move = None
+        original_alpha = alpha
+        
+        for move in moves:
+            next_state = make_move(state, move)
+
+            extension = 0
+            if depth > 0:
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
+            
+            if value >= beta:
+                # Update history & killers for quiet moves
+                self.store_history(move, depth)
+                self.store_killer(depth, move)
+                self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
+                return beta
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+                
+            if value > alpha:
+                alpha = value
+
+        flag = FLAG_EXACT
+        if best_value <= original_alpha:
+            flag = FLAG_UPPERBOUND
+        
+        self.tt.store(state.hash, depth, best_value, flag, best_move)
+        
+        return best_value
