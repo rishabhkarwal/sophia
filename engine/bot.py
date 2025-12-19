@@ -503,7 +503,7 @@ class IterativeDeepeningBot(QuiescenceBot):
                 best_move, score = self.search_root(state, current_depth, moves)
                 best_move_so_far = best_move
                 
-                if debug: print(f"Info: Depth {current_depth} | Move: {best_move_so_far} | Score: {score} | Nodes: {self.nodes_searched} | Time: {time.time() - self.start_time:.3f}s")
+                if debug: print(f"Depth {current_depth} | Move: {best_move_so_far} | Eval: {score} | Nodes: {self.nodes_searched} | Time: {time.time() - self.start_time:.3f}s")
                 
                 # check if we have time for next depth
                 elapsed = time.time() - self.start_time
@@ -515,7 +515,7 @@ class IterativeDeepeningBot(QuiescenceBot):
                 if current_depth > 100: break
                 
             except TimeoutError:
-                if debug: print(f"Info: Time limit reached at Depth {current_depth}")
+                #if debug: print(f"Info: Time limit reached at Depth {current_depth}")
                 break
                 
         return best_move_so_far
@@ -624,15 +624,15 @@ class KillerBot(PositionalBot):
         
         while True:
             try:
-                if debug: print(f"Searching Depth {current_depth}...")
+                #if debug: print(f"Searching Depth {current_depth}...")
                 
                 best_move, score = self.search_root(state, current_depth, moves)
                 best_move_so_far = best_move
                 
                 if debug: 
-                    elapsed = time.time() - self.start_time
-                    nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
-                    print(f"Info: Depth {current_depth} | Score: {score} | Move: {best_move} | NPS: {nps:,}")
+                    #elapsed = time.time() - self.start_time
+                    #nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
+                    print(f"Depth {current_depth} | Eval: {score} | Move: {best_move} | Nodes: {self.nodes_searched:,}")
 
                 elapsed = time.time() - self.start_time
                 if elapsed > self.time_limit / 2:
@@ -642,7 +642,7 @@ class KillerBot(PositionalBot):
                 if current_depth > 100: break
                 
             except TimeoutError:
-                if debug: print(f"Timeout at Depth {current_depth}")
+                #if debug: print(f"Timeout at Depth {current_depth}")
                 break
                 
         return best_move_so_far
@@ -930,6 +930,103 @@ class HistoryBot(KillerBot):
                 self.store_history(move, depth)
                 self.store_killer(depth, move)
                 self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
+                return beta
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+                
+            if value > alpha:
+                alpha = value
+
+        flag = FLAG_EXACT
+        if best_value <= original_alpha:
+            flag = FLAG_UPPERBOUND
+        
+        self.tt.store(state.hash, depth, best_value, flag, best_move)
+        
+        return best_value
+
+class PVSBot(HistoryBot):
+    """
+    Principal Variation Search (PVS)
+    Relies heavily on good move ordering...
+    Searches the first move with a full window, and subsequent moves with a zero-window
+    to prove they are worse but if a move proves better, it re-searches it fully
+    """
+    def alpha_beta(self, state, depth, alpha, beta):
+        self.nodes_searched += 1
+        if (self.nodes_searched & 2047) == 0:
+            if time.time() - self.start_time > self.time_limit:
+                raise TimeoutError()
+        
+        if is_threefold_repetition(state):
+            return 0
+
+        tt_entry = self.tt.probe(state.hash)
+        if tt_entry and tt_entry.depth >= depth:
+            if tt_entry.flag == FLAG_EXACT:
+                return tt_entry.score
+            elif tt_entry.flag == FLAG_LOWERBOUND:
+                alpha = max(alpha, tt_entry.score)
+            elif tt_entry.flag == FLAG_UPPERBOUND:
+                beta = min(beta, tt_entry.score)
+            
+            if alpha >= beta:
+                return tt_entry.score
+
+        if depth <= 0:
+            return self.quiescence(state, alpha, beta)
+
+        moves = get_legal_moves(state)
+        
+        if not moves:
+            if is_in_check(state, state.player):
+                return -100000 + depth
+            return 0 
+
+        tt_move = tt_entry.best_move if tt_entry else None
+        
+        killer_1 = self.killer_moves[depth][0]
+        killer_2 = self.killer_moves[depth][1]
+
+        def move_score(m):
+            if m == tt_move: return 10000000
+            if m.is_capture: return 1000000 + self.get_mvv_lva_score(state, m)
+            if m == killer_1: return 900000
+            if m == killer_2: return 800000
+            return self.history_table[m.start][m.target]
+
+        moves.sort(key=move_score, reverse=True)
+
+        best_value = -float('inf')
+        best_move = None
+        original_alpha = alpha
+        
+        for i, move in enumerate(moves):
+            next_state = make_move(state, move)
+
+            extension = 0
+            if depth > 0 and is_in_check(next_state, next_state.player):
+                extension = 1
+
+            if i == 0:
+                # First move: full window search
+                value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
+            else:
+                # Late moves: zero-window search (alpha, alpha + 1)
+                # Assume this move is worse than the best so far (alpha)
+                value = -self.alpha_beta(next_state, depth - 1 + extension, -(alpha + 1), -alpha)
+                
+                # If value > alpha, zero-window assumption was wrong
+                # This move is actually good - must re-search with full window
+                if alpha < value < beta:
+                    value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
+            
+            if value >= beta:
+                self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
+                self.store_killer(depth, move)
+                self.store_history(move, depth)
                 return beta
             
             if value > best_value:
