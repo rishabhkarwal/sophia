@@ -3,7 +3,7 @@ from engine.bot import *
 from engine.constants import WHITE, BLACK
 
 if __name__ == "__main__":
-    player_1 = LMRBot(WHITE, time_limit=3, tt_size_mb=32)
+    player_1 = AspirationBot(WHITE, time_limit=3, tt_size_mb=32)
     player_2 = NMPBot(BLACK, time_limit=3, tt_size_mb=32)
     game = Game(player_1, player_2)
     
@@ -13,19 +13,21 @@ if __name__ == "__main__":
     #game.run(debug=True)
 
 """
-Testing: 100%|---| 10/10 [46:52<00:00, 281.30s/game, => LMRBot (White): 0, NMPBot (Black): 1, Draw: 9]
+Testing:  60%|--- | 6/10 [39:01<26:00, 390.18s/game, => AspirationBot (White): 1, NMPBot (Black): 0, Draw: 5]    
 
-LMRBot (White): 0.0%
-NMPBot (Black): 10.0%
-Draw: 90.0%
+AspirationBot (White): 14.29%
+NMPBot (Black): 0.0%
+Draw: 71.43%
         50-Move Rule: 0
         Stalemate: 0
-        Threefold Repetition: 9
+        Threefold Repetition: 5
 
+Currently, loop searches every depth with a full window (-infinity, +infinity)
+This forces the engine to search for "mate scores" even when the position is likely just "slightly winning" (e.g., +0.5)
 
-Null move pruning: give the opponent a "free turn" (pass); if our position is so strong that, even after doing nothing, the opponent still cannot find a move that improves their position enough to beat our expectations (beta), then can safely cut off the search
+Aspiration Windows optimise this by guessing that the score for Depth N will be roughly similar to Depth N-1
 
-Allows searching large subtrees where one side is overwhelmingly winning or position is static 
+We search with a narrow window around the previous score and if result falls within this window then we save a lot of time ! 
 
-However zugzwang positions are falsely evaluated as wins when using NMP; so just check if at least 1 major piece is present
+This makes the engine significantly faster in stable positions
 """

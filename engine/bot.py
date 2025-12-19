@@ -1321,3 +1321,124 @@ class NMPBot(LMRBot):
         self.tt.store(state.hash, depth, best_value, flag, best_move)
         
         return best_value
+
+class AspirationBot(NMPBot):
+    """
+    Adds Aspiration Windows to the Iterative Deepening loop
+    """
+    def get_best_move(self, state, debug=False):
+        self.nodes_searched = 0
+        self.start_time = time.time()
+        
+        moves = get_legal_moves(state)
+        if not moves: return None
+        
+        # Initial sort (search root will re-sort anyway)
+        moves.sort(key=lambda m: (m.is_capture, m.is_promotion), reverse=True)
+        
+        best_move_so_far = moves[0]
+        current_depth = 1
+        current_score = 0
+        
+        while True:
+            try:
+                # Promote best move from previous iteration
+                if best_move_so_far in moves:
+                    moves.remove(best_move_so_far)
+                    moves.insert(0, best_move_so_far)
+                
+                # Aspiration Windows
+                alpha = -float('inf')
+                beta = float('inf')
+                window = 50
+                
+                # Only use aspiration windows if we have a previous score (depth > 1)
+                if current_depth > 1:
+                    alpha = current_score - window
+                    beta = current_score + window
+                    
+                    best_move, score = self.search_root(state, current_depth, moves, alpha, beta)
+                    
+                    # Fail Low or High -> Re-search full window
+                    if score <= alpha or score >= beta:
+                        if debug: print(f"Depth {current_depth} aspiration fail: {score}. Re-searching")
+                        alpha = -float('inf')
+                        beta = float('inf')
+                        best_move, score = self.search_root(state, current_depth, moves, alpha, beta)
+                else:
+                    best_move, score = self.search_root(state, current_depth, moves, alpha, beta)
+
+                best_move_so_far = best_move
+                current_score = score
+                
+                if debug: print(f"Depth {current_depth} | Move: {best_move_so_far} | Score: {score} | Nodes: {self.nodes_searched} | Time: {time.time() - self.start_time:.3f}s")
+                
+                elapsed = time.time() - self.start_time
+                if elapsed > self.time_limit / 2:
+                    break
+                    
+                current_depth += 1
+                if current_depth > 100: break
+                
+            except TimeoutError:
+                #if debug: print(f"Info: Time limit reached at Depth {current_depth}")
+                break
+                
+        return best_move_so_far
+
+    def search_root(self, state, depth, moves, alpha, beta):
+        # Improve Root move ordering using History/Killer heuristics
+        # This requires access to transposition table move if available
+        tt_entry = self.tt.probe(state.hash)
+        tt_move = tt_entry.best_move if tt_entry else None
+        killer_1 = self.killer_moves[depth][0]
+        killer_2 = self.killer_moves[depth][1]
+
+        def move_score(m):
+            if m == tt_move: return 10000000
+            if m.is_capture: return 1000000 + self.get_mvv_lva_score(state, m)
+            if m == killer_1: return 900000
+            if m == killer_2: return 800000
+            return self.history_table[m.start][m.target]
+
+        # Re-sort moves at root for optimal PVS performance
+        moves.sort(key=move_score, reverse=True)
+
+        best_move = moves[0]
+        best_value = -float('inf')
+        
+        # PVS Root Search
+        for i, move in enumerate(moves):
+            # Timeout Check: Only timeout if depth > 1
+            if depth > 1 and time.time() - self.start_time > self.time_limit:
+                raise TimeoutError()
+                
+            next_state = make_move(state, move)
+            
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+            
+            if i == 0:
+                # PV Move: Full window
+                value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
+            else:
+                # PVS: Zero window search
+                value = -self.alpha_beta(next_state, depth - 1 + extension, -(alpha + 1), -alpha)
+                # If failed high, re-search full window
+                if alpha < value < beta:
+                    value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+                
+            if value > alpha:
+                alpha = value
+                # Note: At root, if found a move that exceeds beta (aspiration high fail),
+                # return immediately so the outer loop can widen the window.
+                if alpha >= beta:
+                    return best_move, alpha # Return alpha (the high score) to trigger re-search
+        
+        self.tt.store(state.hash, depth, best_value, FLAG_EXACT, best_move)
+        return best_move, best_value

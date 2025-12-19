@@ -1,6 +1,6 @@
 from engine.fen_parser import load_from_fen
 
-from engine.bot import LMRBot as Bot
+from engine.bot import AspirationBot as Bot
 
 position = "8/4B3/8/4p2P/5k2/1K5p/8/8 w - - 0 1"
 state = load_from_fen(position)
@@ -11,6 +11,16 @@ engine = Bot(colour, time_limit=5)
 engine.get_best_move(state, debug=True)
 
 """
+Aspiration:
+Depth 1 | Move: b3a2 | Score: 265 | Nodes: 39 | Time: 0.003s
+Depth 2 | Move: b3a2 | Score: 225 | Nodes: 128 | Time: 0.014s
+Depth 3 | Move: b3a2 | Score: 235 | Nodes: 789 | Time: 0.054s
+Depth 4 | Move: e7a3 | Score: 190 | Nodes: 2136 | Time: 0.189s
+Depth 5 aspiration fail: 140. Re-searching
+Depth 5 | Move: h5h6 | Score: -510 | Nodes: 8177 | Time: 0.721s
+Depth 6 | Move: b3a2 | Score: -510 | Nodes: 14139 | Time: 1.333s
+Depth 7 | Move: b3a2 | Score: -535 | Nodes: 26393 | Time: 2.534s
+
 LMR:
 Depth 1 | Eval: 265 | Move: b3a2 | Nodes: 37
 Depth 2 | Eval: 225 | Move: b3a2 | Nodes: 109
