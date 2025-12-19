@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any, Optional
 
-from .constants import ALL_PIECES, WHITE_PIECES, BLACK_PIECES
+from engine.core.constants import ALL_PIECES
 
 @dataclass(frozen=False, slots=True)
 class State:
@@ -17,7 +17,7 @@ class State:
     def __post_init__(self):
         """Automatically compute hash if it wasn't provided during initialisation"""
         if self.hash is None:
-            from .zobrist import compute_hash
+            from engine.core.zobrist import compute_hash
             self.hash = compute_hash(self)
 
     def get_piece_at(self, square):

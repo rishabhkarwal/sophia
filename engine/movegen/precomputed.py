@@ -1,131 +1,94 @@
 from typing import List, Dict, Tuple
-from .constants import (
+from engine.core.constants import (
     WHITE, BLACK,
     FILE_A, FILE_H, FILE_AB, FILE_GH,
-    NO_SQUARE, FULL_BOARD
+    FULL_BOARD
 )
+from engine.core.bitboard_utils import BitBoard
 
 KNIGHT_ATTACKS: List[int] = [0] * 64
 KING_ATTACKS: List[int]   = [0] * 64
 WHITE_PAWN_ATTACKS: List[int] = [0] * 64
 BLACK_PAWN_ATTACKS: List[int] = [0] * 64
 
-# sliding piece tables
 ROOK_TABLE: Dict[Tuple[int, int], int] = {}
 BISHOP_TABLE: Dict[Tuple[int, int], int] = {}
 
-# sliding piece masks
 ROOK_MASKS: List[int] = [0] * 64
 BISHOP_MASKS: List[int] = [0] * 64
 
 def generate_knight_attacks(square: int) -> int:
-    """Calculates all knight jumps from 'square'"""
     attacks = 0
     bb = 1 << square
-
-    # north jumps (+17, +15)
     if not (bb & FILE_H):  attacks |= (bb << 17)
     if not (bb & FILE_A):  attacks |= (bb << 15)
-
-    # east jumps (+10, -6)
     if not (bb & FILE_GH): attacks |= (bb << 10)
     if not (bb & FILE_GH): attacks |= (bb >> 6)
-
-    # south jumps (-17, -15)
     if not (bb & FILE_A):  attacks |= (bb >> 17)
     if not (bb & FILE_H):  attacks |= (bb >> 15)
-
-    # west jumps (+6, -10)
     if not (bb & FILE_AB): attacks |= (bb << 6)
     if not (bb & FILE_AB): attacks |= (bb >> 10)
-
     return attacks & FULL_BOARD
 
 def generate_king_attacks(square: int) -> int:
-    """Calculates all king jumps from 'square'"""
     attacks = 0
     bb = 1 << square
-
     if not (bb & FILE_H): attacks |= (bb << 1) | (bb << 9) | (bb >> 7)
     if not (bb & FILE_A): attacks |= (bb >> 1) | (bb >> 9) | (bb << 7)
     attacks |= (bb << 8) | (bb >> 8)
-
     return attacks & FULL_BOARD
 
 def generate_pawn_attacks(square: int, color: int) -> int:
-    """calculates pawn capture squares from 'square'"""
     attacks = 0
     bb = 1 << square
-
     if color == WHITE:
         if not (bb & FILE_A): attacks |= (bb << 7)
         if not (bb & FILE_H): attacks |= (bb << 9)
     else:
         if not (bb & FILE_H): attacks |= (bb >> 7)
         if not (bb & FILE_A): attacks |= (bb >> 9)
-
     return attacks & FULL_BOARD
 
 def generate_sliding_masks(deltas: List[Tuple[int, int]]) -> List[int]:
-    """
-    Generates the mask for every square for sliding pieces (blocker bitboards)
-    """
     masks = []
-    
     for square in range(64):
         mask = 0
         rank, file = square // 8, square % 8
-
         for d_rank, d_file in deltas:
             r, f = rank + d_rank, file + d_file
-            
-            while 0 <= r <= 7 and 0 <= f <= 7: # scans full 'ray' until edge
+            while 0 <= r <= 7 and 0 <= f <= 7:
                 mask |= (1 << (r * 8 + f))
                 r += d_rank
                 f += d_file
-        
         masks.append(mask)
-
     return masks
 
 def generate_sliding_attacks(square: int, block: int, deltas: List[Tuple[int, int]]) -> int:
-    """Calculates the attack bitboard given an occupancy pattern and directions"""
     attacks = 0
     rank, file = square // 8, square % 8
-
     for d_rank, d_file in deltas:
         r, f = rank + d_rank, file + d_file
-        
         while 0 <= r <= 7 and 0 <= f <= 7:
             bit = 1 << (r * 8 + f)
             attacks |= bit
-            
             if bit & block:
                 break
-            
             r += d_rank
             f += d_file
-
     return attacks
 
 def init_sliders(table: Dict[Tuple[int, int], int], masks_list: List[int], deltas: List[Tuple[int, int]]):
-    """Generates the lookup table for sliding pieces"""
-
     generated_masks = generate_sliding_masks(deltas)
-
     for i in range(64): masks_list[i] = generated_masks[i]
-
     for square in range(64):
         mask = masks_list[square]
         bit_indices = [i for i in range(64) if (mask >> i) & 1]
         num_patterns = 1 << len(bit_indices)
-
         for i in range(num_patterns):
             blocker = 0
             for bit_index, pos in enumerate(bit_indices):
                 if (i >> bit_index) & 1:
                     blocker |= (1 << pos)
-
             attacks = generate_sliding_attacks(square, blocker, deltas)
             table[(square, blocker)] = attacks
 
@@ -136,10 +99,10 @@ def init_tables():
         WHITE_PAWN_ATTACKS[square] = generate_pawn_attacks(square, WHITE)
         BLACK_PAWN_ATTACKS[square] = generate_pawn_attacks(square, BLACK)
 
-    # diagonal
     bishop_deltas = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
     init_sliders(BISHOP_TABLE, BISHOP_MASKS, bishop_deltas)
     
-    # orthogonal 
     rook_deltas = [(1, 0), (-1, 0), (0, 1), (0, -1)]
     init_sliders(ROOK_TABLE, ROOK_MASKS, rook_deltas)
+
+init_tables()

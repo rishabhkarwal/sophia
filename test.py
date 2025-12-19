@@ -1,75 +1,31 @@
-from engine.bot import *
-from engine.constants import WHITE, BLACK
-from engine.fen_parser import load_from_fen
+from engine.board.fen_parser import load_from_fen
+from engine.search.search import SearchEngine
 
-from time import time_ns
-from random import choice
-from tqdm import tqdm
+position = "8/4B3/8/4p2P/5k2/1K5p/8/8 w - - 0 1"
+state = load_from_fen(position)
 
-from book import start_positions
+print(f"Testing Position: {position}\n")
 
-positions = 10
-
-try:
-    for _ in range(positions):
-        fen = choice(start_positions)
-
-        state = load_from_fen(fen)
-        colour = state.player
-        bots = [AlphaBetaBot(colour, depth=3), TranspositionBot(colour, time_limit=2)]
-
-        print(f'\n{fen}')
-        for bot in bots:
-            print(f'  {str(bot).replace('Bot', ''):<15}\t', end='', flush=True)
-            start = time_ns()
-            move = bot.get_best_move(state)
-            dt = time_ns() - start
-
-            print(f": {move} | {bot.nodes_searched} | {dt / 1e9 : .4f}")
-except KeyboardInterrupt:
-    pass
+engine = SearchEngine(time_limit=5.0, tt_size_mb=64)
 
 
-""" 
-Testing framework to see performance difference between different implementation
+best_move = engine.get_best_move(state, debug=True)
 
-rnbqk2r/1p2bppp/p2ppn2/6B1/3NP3/2N5/PPP1BPPP/R2QK2R w KQkq -
-  AlphaBeta             : O-O | 2755 |  0.6964
-  Transposition         : d1d3 | 9905 |  1.3227
+print(f"\nBest Move: {best_move}")
 
-rnbqkb1r/pp1ppppp/5n2/2p5/2P1P3/2N5/PP1P1PPP/R1BQKBNR b KQkq -
-  AlphaBeta             : d8a5 | 1839 |  0.5454
-  Transposition         : b8c6 | 12623 |  2.0607
+"""
+Testing Position: 8/4B3/8/4p2P/5k2/1K5p/8/8 w - - 0 1
 
-r1bq1rk1/pp2ppbp/2np1np1/8/3PP3/2N2N2/PP2BPPP/R1BQ1RK1 w - -
-  AlphaBeta             : d1a4 | 5236 |  1.0515
-  Transposition         : c1e3 | 17111 |  2.1039
+Depth 1 | Move: b3c4 | Score: 191 | Nodes: 41 | NPS: 28,527 | Time: 0.0014
+Depth 2 | Move: b3c4 | Score: 160 | Nodes: 113 | NPS: 16,689 | Time: 0.0068
+Depth 3 | Move: b3c4 | Score: 180 | Nodes: 769 | NPS: 17,679 | Time: 0.0435
+Aspiration fail @ Depth 4 (Score: 130) ∴ Re-searching...
+Depth 4 | Move: e7b4 | Score: 114 | Nodes: 2,514 | NPS: 11,597 | Time: 0.2168
+Depth 5 | Move: e7b4 | Score: 151 | Nodes: 4,402 | NPS: 14,159 | Time: 0.3109
+Aspiration fail @ Depth 6 (Score: 101) ∴ Re-searching...
+Depth 6 | Move: e7b4 | Score: -550 | Nodes: 13,799 | NPS: 11,515 | Time: 1.1983
+Depth 7 | Move: e7b4 | Score: -532 | Nodes: 19,810 | NPS: 12,187 | Time: 1.6255
+Depth 8 | Move: e7b4 | Score: -557 | Nodes: 37,260 | NPS: 11,689 | Time: 3.1874
 
-rnbqk2r/pp2bppp/4pn2/2pp4/2PP4/5NP1/PP2PPBP/RNBQ1RK1 b kq -
-  AlphaBeta             : d5c4 | 1550 |  0.3552
-  Transposition         : d5c4 | 12014 |  2.1855
-
-r1bqkb1r/pp1p1ppp/2n2n2/8/3NP3/2N5/PP3PPP/R1BQKB1R b KQkq -
-  AlphaBeta             : c6d4 | 1329 |  0.5141
-  Transposition         : d7d5 | 13403 |  2.1331
-
-rn1qkb1r/pp3ppp/2p1pn2/8/3PB3/5N2/PPP2PPP/R1BQ1RK1 w kq -
-  AlphaBeta             : c1g5 | 1699 |  0.4569
-  Transposition         : c1g5 | 22198 |  2.8909
-
-rnbqkb1r/pp1p1ppp/4p3/2pnP3/8/2P2N2/PP1P1PPP/RNBQKB1R w KQkq -
-  AlphaBeta             : f1c4 | 3239 |  0.5508
-  Transposition         : c3c4 | 14098 |  2.1963
-
-rnbqkbnr/ppp2ppp/8/3pp3/8/2P5/PPQPPPPP/RNB1KBNR w KQkq -
-  AlphaBeta             : g1f3 | 2498 |  0.5776
-  Transposition         : g1f3 | 5748 |  1.1329
-
-r2qkb1r/pp3ppp/2n1pn2/2pp1b2/3P1B2/2P1PN2/PP1N1PPP/R2QKB1R w KQkq -
-  AlphaBeta             : f3h4 | 2544 |  0.7757
-  Transposition         : f1b5 | 13169 |  2.1284
-
-rnbqk1nr/ppp2p1p/3b4/8/3P2p1/5N2/PPP1P1PP/RNBQKB1R w KQkq -
-  AlphaBeta             : c1g5 | 2279 |  0.6189
-  Transposition         : f3g5 | 12963 |  1.9652
+Best Move: e7b4
 """

@@ -1,6 +1,6 @@
-from .utils import BitBoard
-from .state import State
-from .constants import NO_SQUARE, WHITE, BLACK, CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ, WHITE_PIECES, BLACK_PIECES
+from engine.core.bitboard_utils import BitBoard
+from engine.board.state import State
+from engine.core.constants import NO_SQUARE, WHITE, BLACK, CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ, WHITE_PIECES, BLACK_PIECES
 
 def load_from_fen(fen_string : str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'):
     state = State(
