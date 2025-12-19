@@ -598,6 +598,9 @@ class KillerBot(PositionalBot):
         # Assume max depth 100
         self.killer_moves = [[None] * 2 for _ in range(102)]
 
+        # Delta Pruning safety margin (Queen value + 100 pawn buffer)
+        self.delta_margin = self.VALUES['Q'] + 100
+
     def store_killer(self, depth, move):
         """Stores a quiet move that caused a beta cutoff"""
         if move.is_capture: return # We only track quiet killer moves
@@ -661,13 +664,17 @@ class KillerBot(PositionalBot):
             moves.insert(0, tt_move)
             
         for move in moves:
-            # Reverted: timeout check here is risky if depth 1 contains critical info
-            if time.time() - self.start_time > self.time_limit:
+            # FIX: Only timeout if we are deeper than depth 1
+            if depth > 1 and time.time() - self.start_time > self.time_limit:
                 raise TimeoutError()
                 
             next_state = make_move(state, move)
 
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            extension = 0
+            if is_in_check(next_state, next_state.player):
+                extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value > best_value:
                 best_value = value
@@ -732,7 +739,12 @@ class KillerBot(PositionalBot):
         for move in moves:
             next_state = make_move(state, move)
 
-            value = -self.alpha_beta(next_state, depth - 1, -beta, -alpha)
+            extension = 0
+            if depth > 0:
+                if is_in_check(next_state, next_state.player):
+                    extension = 1
+
+            value = -self.alpha_beta(next_state, depth - 1 + extension, -beta, -alpha)
             
             if value >= beta:
                 # Update TT and Killer Moves
@@ -770,6 +782,10 @@ class KillerBot(PositionalBot):
             
             if base_eval > alpha:
                 alpha = base_eval
+                
+            # DELTA PRUNING
+            if base_eval + self.delta_margin < alpha:
+                return alpha
             
         if in_check:
             moves = get_legal_moves(state)
