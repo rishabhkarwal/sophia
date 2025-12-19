@@ -3,31 +3,29 @@ from engine.bot import *
 from engine.constants import WHITE, BLACK
 
 if __name__ == "__main__":
-    player_1 = AspirationBot(WHITE, time_limit=3, tt_size_mb=32)
-    player_2 = NMPBot(BLACK, time_limit=3, tt_size_mb=32)
+    player_1 = PositionalBot(WHITE)
+    player_2 = PhasePositionalBot(BLACK)
     game = Game(player_1, player_2)
     
-    results = game.test(10)
+    results = game.test(1000)
     print(results)
 
     #game.run(debug=True)
 
 """
-Testing:  60%|--- | 6/10 [39:01<26:00, 390.18s/game, => AspirationBot (White): 1, NMPBot (Black): 0, Draw: 5]    
+Testing: 100%|---| 1000/1000 [04:05<00:00,  4.08game/s, => PositionalBot (White): 21, PhasePositionalBot (Black): 109, Draw: 870]
 
-AspirationBot (White): 14.29%
-NMPBot (Black): 0.0%
-Draw: 71.43%
-        50-Move Rule: 0
-        Stalemate: 0
-        Threefold Repetition: 5
+PositionalBot (White): 2.1%
+PhasePositionalBot (Black): 10.9%
+Draw: 87.0%
+        50-Move Rule: 133
+        Stalemate: 228
+        Threefold Repetition: 509
 
-Currently, loop searches every depth with a full window (-infinity, +infinity)
-This forces the engine to search for "mate scores" even when the position is likely just "slightly winning" (e.g., +0.5)
+As it is only a depth 1 bot; most games are draws and are random BUT it rarely loses to old PSQT based bot
 
-Aspiration Windows optimise this by guessing that the score for Depth N will be roughly similar to Depth N-1
+New PSQT bot now looks at game phase to assign values to squares => can have differing PSQT based on whether its middlegame or endgame
 
-We search with a narrow window around the previous score and if result falls within this window then we save a lot of time ! 
+Allows kings to be pushed to the corners in middlegame; and then pushed to centre in endgame
 
-This makes the engine significantly faster in stable positions
 """

@@ -173,6 +173,162 @@ class PositionalBot(MaterialBot):
 
         return score if self.colour == WHITE else -score
 
+class PhasePositionalBot(MaterialBot):
+    """
+    Uses separate tables for middlegame and endgame, blended by a phase value
+    """
+    # -- PAWN --
+    MG_PAWN = [ # Encourage centre activity
+        0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+        5,  5, 10, 25, 25, 10,  5,  5,
+        0,  0,  0, 20, 20,  0,  0,  0,
+        5, -5,-10,  0,  0,-10, -5,  5,
+        5, 10, 10,-20,-20, 10, 10,  5,
+        0,  0,  0,  0,  0,  0,  0,  0
+    ]
+    EG_PAWN = [ # Encourage promotion
+        0,  0,  0,  0,  0,  0,  0,  0,
+        80, 80, 80, 80, 80, 80, 80, 80,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        30, 30, 30, 30, 30, 30, 30, 30,
+        20, 20, 20, 20, 20, 20, 20, 20,
+        10, 10, 10, 10, 10, 10, 10, 10,
+        10, 10, 10, 10, 10, 10, 10, 10,
+        0,  0,  0,  0,  0,  0,  0,  0
+    ]
+
+    # -- KNIGHT --
+    MG_KNIGHT = [ # Centralise
+        -50,-40,-30,-30,-30,-30,-40,-50,
+        -40,-20,  0,  0,  0,  0,-20,-40,
+        -30,  0, 10, 15, 15, 10,  0,-30,
+        -30,  5, 15, 20, 20, 15,  5,-30,
+        -30,  0, 15, 20, 20, 15,  0,-30,
+        -30,  5, 10, 15, 15, 10,  5,-30,
+        -40,-20,  0,  5,  5,  0,-20,-40,
+        -50,-40,-30,-30,-30,-30,-40,-50
+    ]
+    EG_KNIGHT = MG_KNIGHT # Keep same logic for knights
+
+    # -- BISHOP --
+    MG_BISHOP = [ # Avoid corners
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20
+    ]
+    EG_BISHOP = MG_BISHOP
+
+    # -- ROOK --
+    MG_ROOK = [ # 7th rank good
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0
+    ]
+    EG_ROOK = MG_ROOK
+
+    # -- QUEEN --
+    MG_QUEEN = [ # Centralise
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20
+    ]
+    EG_QUEEN = MG_QUEEN
+
+    # -- KING --
+    MG_KING = [ # Safety (Corners)
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -20,-30,-30,-40,-40,-30,-30,-20,
+        -10,-20,-20,-20,-20,-20,-20,-10,
+        20, 20,  0,  0,  0,  0, 20, 20,
+        20, 30, 10,  0,  0, 10, 30, 20
+    ]
+    EG_KING = [ # Activity (Center)
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50
+    ]
+
+    TAPERED_TABLES = {
+        'P': (MG_PAWN, EG_PAWN),
+        'N': (MG_KNIGHT, EG_KNIGHT),
+        'B': (MG_BISHOP, EG_BISHOP),
+        'R': (MG_ROOK, EG_ROOK),
+        'Q': (MG_QUEEN, EG_QUEEN),
+        'K': (MG_KING, EG_KING)
+    }
+
+    PHASE_WEIGHTS = {
+        'N': 320, 'B': 330, 'R': 500, 'Q': 900
+    }
+    
+    # Max phase = 4*320 + 4*330 + 4*500 + 2*900 = 6400
+    MAX_PHASE = 6400
+
+    def evaluate(self, state):
+        mg_score = 0
+        eg_score = 0
+        phase = 0
+        
+        for piece in ALL_PIECES:
+            bb = state.bitboards.get(piece, 0)
+            if not bb: continue
+            
+            is_white = piece.isupper()
+            piece_type = piece.upper()
+            
+            material = self.VALUES[piece_type]
+
+            if piece_type in self.PHASE_WEIGHTS:
+                phase += self.PHASE_WEIGHTS[piece_type] * bb.bit_count()
+
+            # Select tables
+            mg_table, eg_table = self.TAPERED_TABLES[piece_type]
+            
+            for sq in BitBoard.bit_scan(bb):
+                if is_white:
+                    table_idx = (7 - (sq // 8)) * 8 + (sq % 8) 
+                    mg_score += material + mg_table[table_idx]
+                    eg_score += material + eg_table[table_idx]
+                else:
+                    table_idx = (sq // 8) * 8 + (sq % 8)
+                    mg_score -= (material + mg_table[table_idx])
+                    eg_score -= (material + eg_table[table_idx])
+
+        phase = min(phase, self.MAX_PHASE)
+        # middlegame = phase / MAX_PHASE
+        # endgame = (MAX_PHASE - phase) / MAX_PHASE
+        
+        final_score = (
+            (mg_score * phase) + (eg_score * (self.MAX_PHASE - phase))
+        ) // self.MAX_PHASE
+
+        return final_score if self.colour == WHITE else -final_score
+
 class SearchTreeBot(PositionalBot): # will evaluate material and position
     def __init__(self, colour, depth=3):
         super().__init__(colour)
