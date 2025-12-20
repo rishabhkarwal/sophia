@@ -1,10 +1,6 @@
 from engine.core.constants import ALL_PIECES, WHITE, BLACK
 from engine.core.bitboard_utils import BitBoard
 
-# --- TAPERED EVALUATION TABLES ---
-# MG = Middlegame, EG = Endgame
-# Tables are defined for White relative to A1..H8 (0..63)
-
 # PAWN
 MG_PAWN = [
       0,  0,  0,  0,  0,  0,  0,  0,

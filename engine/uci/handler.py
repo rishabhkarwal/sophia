@@ -10,7 +10,7 @@ from engine.search.search import SearchEngine
 
 class UCI:
     def __init__(self):
-        self.engine = SearchEngine(time_limit=1.0)
+        self.engine = SearchEngine(time_limit=1.0, debug=True)
         self.state = load_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
     def run(self):
@@ -40,7 +40,7 @@ class UCI:
         print("uciok", flush=True)
 
     def handle_new_game(self):
-        self.engine = SearchEngine(time_limit=1.0)
+        self.engine = SearchEngine(time_limit=1.0, debug=True)
 
     def handle_position(self, args):
         moves_idx = -1
@@ -62,24 +62,9 @@ class UCI:
                 for legal_move in legal_moves:
                     s_move = str(legal_move).lower()
                     
-                    # Exact Match
                     if s_move == move_str.lower():
                         self.state = make_move(self.state, legal_move)
                         break
-                    
-                    # Castling Fix
-                    if move_str == "e1g1" and (s_move == "o-o" or s_move == "0-0") and self.state.player == WHITE:
-                         self.state = make_move(self.state, legal_move)
-                         break
-                    if move_str == "e1c1" and (s_move == "o-o-o" or s_move == "0-0-0") and self.state.player == WHITE:
-                         self.state = make_move(self.state, legal_move)
-                         break
-                    if move_str == "e8g8" and (s_move == "o-o" or s_move == "0-0") and self.state.player == BLACK:
-                         self.state = make_move(self.state, legal_move)
-                         break
-                    if move_str == "e8c8" and (s_move == "o-o-o" or s_move == "0-0-0") and self.state.player == BLACK:
-                         self.state = make_move(self.state, legal_move)
-                         break
 
     def handle_go(self, args):
         wtime = None
