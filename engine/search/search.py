@@ -86,7 +86,7 @@ class SearchEngine:
                 
                 elapsed = time.time() - self.start_time
                 elapsed = elapsed * 1000
-                if elapsed > self.time_limit / 2: break
+                if elapsed > self.time_limit / 1.5: break
                     
                 current_depth += 1
                 if current_depth > 100: break
@@ -236,7 +236,7 @@ class SearchEngine:
             moves = get_legal_moves(state, captures_only=False)
             if not moves: return -INFINITY + ply
 
-        moves.sort(key=lambda m: (m & MASK_FLAG), reverse=True)
+        moves.sort(key=lambda m: self.ordering._get_mvv_lva_score(state, m), reverse=True)
         
         for move in moves:
             undo_info = make_move(state, move)

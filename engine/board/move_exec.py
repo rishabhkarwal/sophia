@@ -23,11 +23,9 @@ PROMO_MAP = {
 def is_threefold_repetition(state: State) -> bool:
     if not state.history: return False
     current_hash = state.hash
-    count = 0
     for i in range(len(state.history) - 2, -1, -2):
         if state.history[i] == current_hash:
-            count += 1
-            if count >= 2: return True 
+            return True # only check for repetition once
     return False
 
 def make_null_move(state: State):

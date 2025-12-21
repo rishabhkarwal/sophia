@@ -28,7 +28,7 @@ def test(position='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', ti
 
 
 if __name__ == '__main__':
-        fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+        fen = '8/3K4/1k6/8/8/8/7p/8 w - - 0 1'
         time = 5
         test(position=fen, time_limit=time)
         
