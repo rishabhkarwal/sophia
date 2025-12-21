@@ -6,6 +6,7 @@ from engine.moves.legality import is_in_check
 from engine.search.transposition import TranspositionTable, FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
 from engine.search.evaluation import evaluate
 from engine.search.ordering import MoveOrdering
+from engine.uci.utils import send_command
 
 def seconds_to_ms(seconds) -> int:
     return int(seconds * 1000)
@@ -65,9 +66,21 @@ class SearchEngine:
                 elapsed = time.time() - self.start_time
                 nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
                 
-                score_str = f"cp {score:.1f}"
+                if INFINITY - abs(score) < 1000:
+                    if score > 0: # engine mating
+                        ply_to_mate = INFINITY - score
+                        mate_in = (ply_to_mate + 1) // 2
+                        score_str = f"mate {mate_in}"
+                    else: # engine getting mated
+                        ply_to_mate = INFINITY + score
+                        mate_in = (ply_to_mate + 1) // 2
+                        score_str = f"mate -{mate_in}"
+                else:
+                    score_str = f"cp {int(score)}"
 
-                if self.debug: print(f"info depth {current_depth} score {score_str} nodes {self.nodes_searched:,} nps {nps:,} time {elapsed:.4f}", flush=True)
+                hashfull = self.tt.get_hashfull()
+
+                if self.debug: send_command(f"info depth {current_depth} currmove {best_move_so_far} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull}")
                 
                 elapsed = time.time() - self.start_time
                 elapsed = elapsed * 1000
@@ -97,7 +110,7 @@ class SearchEngine:
         ply = 0
         
         for i, move in enumerate(moves):
-            #if self.debug: print(f"info currmovenumber {i + 1}", flush=True)
+            #if self.debug: send_command(f"info currmovenumber {i + 1}")
 
             next_state = make_move(state, move)
             

@@ -27,6 +27,7 @@ class TranspositionTable:
         self.size = total_bytes // BYTES_PER_ENTRY
         
         self.table = [None] * self.size
+        self.entries_count = 0
 
     def _get_index(self, key: int) -> int:
         return key % self.size
@@ -37,6 +38,7 @@ class TranspositionTable:
         # replacement: if empty or if new search is deeper / same depth
         if existing is None or depth >= existing.depth:
             self.table[index] = TTEntry(key, depth, score, flag, best_move)
+            self.entries_count += 1
 
     def probe(self, key: int) -> Optional[TTEntry]:
         index = self._get_index(key)
@@ -48,3 +50,7 @@ class TranspositionTable:
     
     def clear(self):
         self.table = [None] * self.size
+
+    def get_hashfull(self) -> int:
+        """Returns occupancy in permill (0-1000)"""
+        return int(self.entries_count / self.size * 1000)

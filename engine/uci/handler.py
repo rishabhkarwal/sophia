@@ -4,17 +4,15 @@ import time
 from engine.board.fen_parser import load_from_fen
 from engine.board.move_exec import make_move
 from engine.moves.generator import get_legal_moves
-from engine.core.constants import WHITE, BLACK
+from engine.core.constants import WHITE, BLACK, NAME, AUTHOR
 from engine.search.search import SearchEngine
+from engine.uci.utils import send_command
 
 class UCI:
     def __init__(self, debug=False):
         self.debug = debug
         self.engine = SearchEngine(debug=self.debug)
         self.state = load_from_fen()
-
-    def _send(command : str):
-        print(command, flush=True)
 
     def run(self):
         while True:
@@ -28,7 +26,7 @@ class UCI:
                 command = parts[0]
 
                 if command == 'uci': self.handle_uci()
-                elif command == 'isready': _send('readyok')
+                elif command == 'isready': send_command('readyok')
                 elif command == 'ucinewgame': self.handle_new_game()
                 elif command == 'position': self.handle_position(parts[1:])
                 elif command == 'go': self.handle_go(parts[1:])
@@ -38,9 +36,9 @@ class UCI:
                 continue
 
     def handle_uci(self):
-        _send('id name Indigo')
-        _send('id author Rish')
-        _send('uciok')
+        send_command(f'id name {NAME}')
+        send_command(f'id author {AUTHOR}')
+        send_command('uciok')
 
     def handle_new_game(self):
         self.engine = SearchEngine(debug=self.debug)
@@ -89,7 +87,7 @@ class UCI:
         
         if move_time: time_limit = move_time
 
-        elif w_time is not None and btime is not None:
+        elif w_time is not None and b_time is not None:
             # rule of 30
             if self.state.player == WHITE: time_limit = (w_time / 30.0 + w_inc)
             else: time_limit = (b_time / 30.0 + b_inc)
@@ -103,7 +101,7 @@ class UCI:
             best_move = self.engine.get_best_move(self.state)
             
             move_str = str(best_move) if best_move else '0000'
-            _send(f'bestmove {move_str}')
+            send_command(f'bestmove {move_str}')
 
         except:
             pass
