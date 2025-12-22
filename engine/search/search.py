@@ -91,8 +91,8 @@ class SearchEngine:
                 
                 elapsed = time.time() - self.start_time
                 elapsed = elapsed * 1000
-                # stop if > 80% of time used to prevent timing out in next depth
-                if elapsed > self.time_limit * 0.8: break
+                # stop if > 90% of time used to prevent timing out in next depth
+                if elapsed > self.time_limit * 0.9: break
                     
                 current_depth += 1
                 if current_depth > 100: break
@@ -144,6 +144,8 @@ class SearchEngine:
             if time.time() - self.start_time > self.time_limit / 1000.0: raise TimeoutError() # forgot to convert to ms
         
         if is_threefold_repetition(state): return 0
+        # 50-move rule (draw)
+        if state.halfmove_clock >= 100: return 0 # 100 halfmoves = 50 full moves
 
         tt_entry = self.tt.probe(state.hash)
         if tt_entry and tt_entry.depth >= depth:
@@ -162,9 +164,9 @@ class SearchEngine:
                 reduction = 2 
                 val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, allow_null=False)
                 if val >= beta: return beta
-            except: pass
-            finally:
-                unmake_null_move(state, undo_info)
+            except TimeoutError: raise
+            except Exception: pass 
+            finally: unmake_null_move(state, undo_info)
 
         moves = generate_pseudo_legal_moves(state)
         

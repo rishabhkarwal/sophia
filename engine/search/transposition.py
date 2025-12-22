@@ -18,7 +18,7 @@ class TTEntry:
 # sample entry to measure its actual size in memory
 sample_key = 0xFFFFFFFFFFFFFFFF # max 64-bit integer to assume the full size of the hash
 sample_entry = TTEntry(sample_key, 0, 0, 0, None)
-BYTES_PER_ENTRY = sys.getsizeof(sample_entry) + sys.getsizeof(sample_key) + 8
+BYTES_PER_ENTRY = sys.getsizeof(sample_entry, 72) + sys.getsizeof(sample_key, 36) + 8
 
 class TranspositionTable:
     def __init__(self, size_mb: int = 64):
@@ -35,11 +35,13 @@ class TranspositionTable:
     def store(self, key: int, depth: int, score: int, flag: int, best_move):
         index = self._get_index(key)
         existing: Optional[TTEntry] = self.table[index]
-        # replacement: if empty or if new search is deeper / same depth
-        if existing is None or depth >= existing.depth:
-            self.table[index] = TTEntry(key, depth, score, flag, best_move)
+
+        if existing is None:
             self.entries_count += 1
 
+        if existing is None or depth >= existing.depth:
+            self.table[index] = TTEntry(key, depth, score, flag, best_move)
+        
     def probe(self, key: int) -> Optional[TTEntry]:
         index = self._get_index(key)
         entry = self.table[index]

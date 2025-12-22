@@ -30,8 +30,7 @@ def is_threefold_repetition(state: State) -> bool:
 def make_null_move(state: State):
     old_ep = state.en_passant
     old_hash = state.hash
-    if old_ep != NO_SQUARE:
-        state.hash ^= ZOBRIST_KEYS['ep'][old_ep % 8]
+    state.hash ^= ZOBRIST_KEYS['ep'][old_ep % 8 if old_ep != NO_SQUARE else 8]
     state.en_passant = NO_SQUARE
     state.hash ^= ZOBRIST_KEYS['ep'][8]
     state.player = not state.player
