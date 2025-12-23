@@ -47,11 +47,37 @@ class SearchEngine:
 
         return ' '.join(move_to_uci(m) for m in pv_moves)
 
+    def _get_cp_score(self, score, max_depth=100):
+        if INFINITY - abs(score) < max_depth: # MATE in 50 (max)
+            if score > 0: 
+                ply_to_mate = INFINITY - score
+                mate_in = (ply_to_mate + 1) // 2
+                score_str = f"mate {mate_in}"
+            else: 
+                ply_to_mate = INFINITY + score
+                mate_in = (ply_to_mate + 1) // 2
+                score_str = f"mate -{mate_in}"
+        else:
+            score_str = f"cp {int(score)}"
+        return score_str
+
     def get_best_move(self, state):
         # syzygy root probe
-        syzygy_move = self.syzygy.get_best_move(state)
-        if syzygy_move:
-            send_info_string(f'found syzygy move: {syzygy_move}')
+        syzygy_result = self.syzygy.get_best_move(state)
+        if syzygy_result:
+            syzygy_move, wdl, dtz = syzygy_result
+            
+            ply = 0
+            if wdl > 0: score = INFINITY - ply - abs(dtz) # winning
+            elif wdl < 0: score = -INFINITY + ply + abs(dtz) # losing
+            else: score = 0 # draw
+
+            score_str = self._get_cp_score(score)
+
+            send_command(f"info depth {dtz} score {score_str} pv {syzygy_move} string syzygy hit")
+
+            self.tt.store(state.hash, 100, score, FLAG_EXACT, None) 
+
             return syzygy_move
 
         self.nodes_searched = 0
@@ -105,17 +131,7 @@ class SearchEngine:
                 elapsed = time.time() - self.start_time
                 nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
                 
-                if INFINITY - abs(score) < 50: # MATE in 25 (max)
-                    if score > 0: 
-                        ply_to_mate = INFINITY - score
-                        mate_in = (ply_to_mate + 1) // 2
-                        score_str = f"mate {mate_in}"
-                    else: 
-                        ply_to_mate = INFINITY + score
-                        mate_in = (ply_to_mate + 1) // 2
-                        score_str = f"mate -{mate_in}"
-                else:
-                    score_str = f"cp {int(score)}"
+                score_str = self._get_cp_score(score)
 
                 hashfull = self.tt.get_hashfull()
                 pv_string = self._get_pv_line(state, current_depth)
@@ -192,9 +208,10 @@ class SearchEngine:
         wdl = self.syzygy.probe_wdl(state)
         if wdl is not None:
             dtz = self.syzygy.probe_dtz(state) # distance-to-zero: used to find the fastest mate
+            TB_WIN_SCORE = INFINITY - 1000
 
-            if wdl > 0: score = INFINITY - ply - abs(dtz)# winning
-            elif wdl < 0: score = -INFINITY + ply + abs(dtz) # losing
+            if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz) # winning
+            elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz) # losing
             else: score = 0 # draw
 
             self.tt.store(state.hash, depth, score, FLAG_EXACT, None) # save result so don't have to convert / probe again for this position

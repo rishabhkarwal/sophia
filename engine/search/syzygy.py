@@ -28,21 +28,29 @@ class SyzygyHandler:
 
 
         try: board = state_to_board(state)
-        except Exception: return None 
+        except Exception: return None
 
-        try: current_wdl = self.tablebase.probe_wdl(board)
-        except chess.syzygy.MissingTableError: return None
+        try: 
+            current_wdl = self.tablebase.probe_wdl(board)
+        except chess.syzygy.MissingTableError: 
+            return None
 
         if current_wdl is None: return None
 
+        try: root_dtz = self.tablebase.probe_dtz(board)
+        except: root_dtz = 0
+
         best_move = None
-        best_dtz = 99999
+        best_dtz = float('inf')
         max_dtz = -1
 
         moves = list(board.legal_moves)
         random.shuffle(moves)
 
         for move in moves:
+            # if winning: don't draw
+            if current_wdl > 0 and board.is_repetition(3): continue
+
             board.push(move)
             try:
                 outcome_wdl = self.tablebase.probe_wdl(board)
@@ -54,29 +62,28 @@ class SyzygyHandler:
 
             if outcome_wdl is None or outcome_dtz is None: continue
 
-            # WDL is from side-to-move perspective: if outcome is -2 (loss) => that is a win for self
-        
-            # winning
+            # winning: find move that leads to fastest conversion (lowest DTZ)
             if current_wdl > 0:
-                if outcome_wdl == -2:
+                if outcome_wdl == -2 or outcome_wdl == -1: # opponent is losing
                     if abs(outcome_dtz) < best_dtz:
                         best_dtz = abs(outcome_dtz)
                         best_move = move
             
-            # drawing
+            # drawing: maintain the draw
             elif current_wdl == 0:
                 if outcome_wdl == 0:
-                    return move.uci()
+                    best_move = move
+                    break
 
-            # losing (delay it)
+            # losing: delay the loss as long as possible (highest DTZ)
             elif current_wdl < 0:
-                if outcome_wdl == 2:
+                if outcome_wdl == 2 or outcome_wdl == 1:
                     if abs(outcome_dtz) > max_dtz:
                         max_dtz = abs(outcome_dtz)
                         best_move = move
 
-        if best_move:
-            return best_move.uci()
+        if best_move: return (best_move.uci(), current_wdl, root_dtz)
+            
         return None
 
     def probe_wdl(self, state):
