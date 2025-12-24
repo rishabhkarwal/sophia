@@ -6,17 +6,16 @@ from engine.board.fen_parser import load_from_fen
 from engine.board.move_exec import make_move, unmake_move
 from engine.moves.generator import get_legal_moves
 from engine.moves.legality import is_in_check, get_attackers
-from engine.core.constants import WHITE, MASK_FLAG, MASK_TARGET
-from engine.core.utils import BitBoard
+from engine.core.constants import WHITE, BLACK, MASK_FLAG, MASK_TARGET, WK, BK
+from engine.core.move import PROMOTION_N
+from engine.core.utils import bit_scan
 from engine.moves.precomputed import init_tables
 
 from engine.core.move import (
-    CAPTURE, EP_CAPTURE, 
+    CAPTURE, EN_PASSANT, 
     CASTLE_KS, CASTLE_QS, 
-    PROMOTION_N, PROMO_CAP_N
+    PROMO_CAP_N
 )
-
-# made to ensure logic is still correct
 
 @dataclass
 class Stats:
@@ -135,15 +134,15 @@ def perft(state: State, depth: int) -> Stats:
         if depth == 1:
             stats.nodes += 1
             
-            # Extract bits
+            # Extract bits using the new masks
             flag = (move & MASK_FLAG) >> 12
             target_sq = (move & MASK_TARGET) >> 6
             
             # Count Types
-            if flag == CAPTURE or flag == EP_CAPTURE or flag >= PROMO_CAP_N:
+            if flag == CAPTURE or flag == EN_PASSANT or flag >= PROMO_CAP_N:
                 stats.captures += 1
             
-            if flag == EP_CAPTURE:
+            if flag == EN_PASSANT:
                 stats.ep += 1
                 
             if flag == CASTLE_KS or flag == CASTLE_QS:
@@ -153,17 +152,21 @@ def perft(state: State, depth: int) -> Stats:
                 stats.promotions += 1
             
             # Check Detection
-            # state.player is the VICTIM (side to move next)
-            # not state.player is the CHECKER (side that just moved)
-            if is_in_check(state, state.player):
+            # We must use state.is_white to determine current side
+            current_side = WHITE if state.is_white else BLACK
+            previous_side = BLACK if state.is_white else WHITE # Side that just moved
+            
+            # is_in_check checks if the SIDE ARGUMENT is being attacked
+            if is_in_check(state, current_side):
                 stats.checks += 1
                 
-                king_key = 'K' if state.player == WHITE else 'k'
+                king_key = WK if current_side == WHITE else BK
                 king_bb = state.bitboards[king_key]
                 
                 if king_bb:
                     king_sq = (king_bb & -king_bb).bit_length() - 1
-                    checks_bb = get_attackers(state, king_sq, not state.player)
+                    # Get attackers from the previous side (the one that moved)
+                    checks_bb = get_attackers(state, king_sq, previous_side)
                     check_count = bin(checks_bb).count('1')
                     
                     if check_count > 1:

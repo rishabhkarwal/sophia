@@ -2,18 +2,21 @@ from typing import List
 from engine.core.constants import (
     WHITE, BLACK, CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
     A8, H1, E1, F1, G1, C1, D1, B1, E8, F8, G8, C8, D8, B8,
-    RANK_3, RANK_6, WHITE_PIECES, BLACK_PIECES,
-    MASK_SOURCE, MASK_TARGET, NO_SQUARE
+    RANK_3, RANK_6,
+    WHITE_PIECES, BLACK_PIECES,
+    MASK_SOURCE, MASK_TARGET, NO_SQUARE,
+    NORTH, SOUTH,
+    WP, BP, WN, BN, WB, BB, WR, BR, WQ, BQ, WK, BK,
+    WHITE_STR, BLACK_STR, ALL_STR
 )
 from engine.board.state import State
 from engine.core.move import (
-    QUIET, CAPTURE, EP_CAPTURE, 
+    QUIET, CAPTURE, EN_PASSANT,
     CASTLE_KS, CASTLE_QS,
     PROMOTION_N, PROMOTION_B, PROMOTION_R, PROMOTION_Q,
     PROMO_CAP_N, PROMO_CAP_B, PROMO_CAP_R, PROMO_CAP_Q,
-    DOUBLE_PUSH
+    DOUBLE_PUSH, _pack
 )
-from engine.core.utils import BitBoard
 from engine.moves.legality import is_legal, is_square_attacked
 
 from engine.moves.precomputed import (
@@ -22,10 +25,6 @@ from engine.moves.precomputed import (
     BISHOP_TABLE, BISHOP_MASKS,
     WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
 )
-
-# helper to pack moves without function overhead
-def _pack(start, target, flag):
-    return start | (target << 6) | (flag << 12)
 
 def get_legal_moves(state: State, captures_only=False) -> List[int]:
     """Generate all legal moves (integers)"""
@@ -36,43 +35,43 @@ def generate_pseudo_legal_moves(state: State, captures_only=False) -> List[int]:
     """Generate all pseudo-legal moves"""
     moves: List[int] = []
     bitboards = state.bitboards
-    all_pieces = bitboards["all"]
+    all_pieces = bitboards[ALL_STR]
     
-    if state.player == WHITE:
-        active = bitboards["white"]
-        opponent = bitboards["black"]
+    if state.is_white:
+        active = bitboards[WHITE_STR]
+        opponent = bitboards[BLACK_STR]
         P, N, B, R, Q, K = WHITE_PIECES
         pawn_attacks = WHITE_PAWN_ATTACKS
     else:
-        active = bitboards["black"]
-        opponent = bitboards["white"]
+        active = bitboards[BLACK_STR]
+        opponent = bitboards[WHITE_STR]
         P, N, B, R, Q, K = BLACK_PIECES
         pawn_attacks = BLACK_PAWN_ATTACKS
 
-    _gen_pawn_moves(state, moves, P, state.player, all_pieces, opponent, pawn_attacks, captures_only)
+    _gen_pawn_moves(state, moves, P, state.is_white, all_pieces, opponent, pawn_attacks, captures_only)
     _gen_knight_moves(bitboards[N], moves, active, opponent, captures_only)
     _gen_king_moves(bitboards[K], moves, active, opponent, captures_only)
-    if not captures_only: _gen_castling_moves(state, moves, all_pieces) 
+    if not captures_only: _gen_castling_moves(state, moves, all_pieces)
     _gen_bishop_moves(bitboards[B], moves, all_pieces, active, opponent, captures_only)
     _gen_rook_moves(bitboards[R], moves, all_pieces, active, opponent, captures_only)
     _gen_queen_moves(bitboards[Q], moves, all_pieces, active, opponent, captures_only)
     
     return moves
 
-def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: int, all_pieces: int, enemy: int, attack_table: List[int], captures_only: bool):
+def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: bool, all_pieces: int, enemy: int, attack_table: List[int], captures_only: bool):
     pawns = state.bitboards[pawn_key]
     if colour == WHITE:
-        direction = 8
+        direction = NORTH
         start_rank_mask = RANK_3
         promotion_rank = A8
-        single_push = (pawns << 8) & ~all_pieces
-        double_push = ((single_push & start_rank_mask) << 8) & ~all_pieces
+        single_push = (pawns << NORTH) & ~all_pieces
+        double_push = ((single_push & start_rank_mask) << NORTH) & ~all_pieces
     else:
-        direction = -8
+        direction = SOUTH
         start_rank_mask = RANK_6
         promotion_rank = H1
-        single_push = (pawns >> 8) & ~all_pieces
-        double_push = ((single_push & start_rank_mask) >> 8) & ~all_pieces
+        single_push = (pawns >> NORTH) & ~all_pieces
+        double_push = ((single_push & start_rank_mask) >> NORTH) & ~all_pieces
     
     # single pushes
     bb = single_push
@@ -84,8 +83,10 @@ def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: int, 
         from_sq = to_sq - direction
         is_promo = (colour == WHITE and to_sq >= promotion_rank) or (colour == BLACK and to_sq <= promotion_rank)
         
-        if is_promo: _add_promotions(moves, from_sq, to_sq, False)
-        elif not captures_only: moves.append(_pack(from_sq, to_sq, QUIET))
+        if is_promo: 
+            _add_promotions(moves, from_sq, to_sq, False)
+        elif not captures_only: 
+            moves.append(_pack(from_sq, to_sq, QUIET))
             
     # double pushes
     if not captures_only:
@@ -116,9 +117,9 @@ def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: int, 
             else:
                 moves.append(_pack(from_sq, to_sq, CAPTURE))
         
-        if state.en_passant != NO_SQUARE:
-            if attack_table[from_sq] & (1 << state.en_passant):
-                moves.append(_pack(from_sq, state.en_passant, EP_CAPTURE))
+        if state.en_passant_square != NO_SQUARE:
+            if attack_table[from_sq] & (1 << state.en_passant_square):
+                moves.append(_pack(from_sq, state.en_passant_square, EN_PASSANT))
 
 def _add_promotions(moves: List[int], from_sq: int, to_sq: int, is_capture: bool):
     if is_capture:
@@ -165,22 +166,22 @@ def _gen_king_moves(pieces: int, moves: List[int], active: int, enemy: int, capt
             moves.append(_pack(from_sq, to_sq, flag))
 
 def _gen_castling_moves(state: State, moves: List[int], all_pieces: int):
-    opponent = BLACK if state.player == WHITE else WHITE
-    if state.player == WHITE:
-        if state.castling & CASTLE_WK:
+    opponent = BLACK if state.is_white else WHITE
+    if state.is_white:
+        if state.castling_rights & CASTLE_WK:
             if not (all_pieces & ((1 << F1) | (1 << G1))):
                 if not is_square_attacked(state, E1, opponent) and not is_square_attacked(state, F1, opponent) and not is_square_attacked(state, G1, opponent):
                     moves.append(_pack(E1, G1, CASTLE_KS))
-        if state.castling & CASTLE_WQ:
+        if state.castling_rights & CASTLE_WQ:
             if not (all_pieces & ((1 << B1) | (1 << C1) | (1 << D1))):
                 if not is_square_attacked(state, E1, opponent) and not is_square_attacked(state, D1, opponent) and not is_square_attacked(state, C1, opponent):
                     moves.append(_pack(E1, C1, CASTLE_QS))
     else:
-        if state.castling & CASTLE_BK:
+        if state.castling_rights & CASTLE_BK:
             if not (all_pieces & ((1 << F8) | (1 << G8))):
                 if not is_square_attacked(state, E8, opponent) and not is_square_attacked(state, F8, opponent) and not is_square_attacked(state, G8, opponent):
                     moves.append(_pack(E8, G8, CASTLE_KS))
-        if state.castling & CASTLE_BQ:
+        if state.castling_rights & CASTLE_BQ:
             if not (all_pieces & ((1 << B8) | (1 << C8) | (1 << D8))):
                 if not is_square_attacked(state, E8, opponent) and not is_square_attacked(state, D8, opponent) and not is_square_attacked(state, C8, opponent):
                     moves.append(_pack(E8, C8, CASTLE_QS))

@@ -1,71 +1,75 @@
-from engine.core.utils import BitBoard
+from engine.core.utils import set_bit, algebraic_to_bit
 from engine.board.state import State
-from engine.core.constants import NO_SQUARE, WHITE, BLACK, CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ, ALL_PIECES
+from engine.core.constants import (
+    NO_SQUARE, WHITE, BLACK,
+    CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ,
+    ALL_PIECES, FLIP_BOARD,
+    WHITE_STR, BLACK_STR, ALL_STR,
+    WK, BK, WQ, BQ
+)
 from engine.search.evaluation import calculate_initial_score
 from engine.core.zobrist import compute_hash
 
-def load_from_fen(fen_string : str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'):
+def load_from_fen(fen_string: str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') -> State:
     state = State(
-        bitboards = {piece : 0 for piece in ALL_PIECES + ('white', 'black', 'all')},
-        player = None,
-        castling = 0,
-        en_passant = NO_SQUARE,
-        halfmove_clock = 0,
-        fullmove_number = 0,
-        history = [],
+        bitboards={},
+        is_white=WHITE,
+        castling_rights=0,
+        en_passant_square=NO_SQUARE,
+        halfmove_clock=0,
+        fullmove_number=0,
+        history=[],
     )
-
+    
     fields = fen_string.split(' ')
     
-    _parse_pieces(fields[0], state)
-    _parse_active_colour(fields[1], state)
-    _parse_castling_rights(fields[2], state)
-    _parse_en_passant(fields[3], state)
-
+    state.bitboards = _parse_pieces(fields[0])
+    state.is_white = _parse_active_colour(fields[1])
+    state.castling_rights = _parse_castling_rights(fields[2])
+    state.en_passant_square = _parse_en_passant(fields[3])
     state.halfmove_clock = int(fields[4])
     state.fullmove_number = int(fields[5])
-
-    calculate_initial_score(state)
     
+    state.mg_score, state.eg_score, state.phase = calculate_initial_score(state)
     state.hash = compute_hash(state)
-
+    
     return state
 
-def _parse_pieces(pieces_fen, state):
+def _parse_pieces(pieces_fen: str):
     """Sets all bitboards"""
-    square_count = 0 # square number (0 - 63)
-    ranks = pieces_fen.split()[0].split('/')
-
+    square_count = 0
+    ranks = pieces_fen.split('/')
+    bitboards = {piece: 0 for piece in ALL_PIECES + (WHITE_STR, BLACK_STR, ALL_STR)}
+    
     for rank in ranks:
         for square in rank:
-
-            if square.isnumeric(): square_count += int(square)
+            if square.isnumeric(): 
+                square_count += int(square)
             
-            if square.isalpha(): # piece
-                index = square_count ^ 56
-                state.bitboards[square] = BitBoard.set_bit(state.bitboards[square], index) # updates the appropriate bitboard
-                colour = 'white' if square.isupper() else 'black'
-                state.bitboards[colour] = BitBoard.set_bit(state.bitboards[colour], index)
+            if square.isalpha():  # piece
+                index = square_count ^ FLIP_BOARD  # flipped as bitboards start from bottom left
+                bitboards[square] = set_bit(bitboards[square], index)
+                colour = WHITE_STR if square.isupper() else BLACK_STR
+                bitboards[colour] = set_bit(bitboards[colour], index)
                 square_count += 1
+    
+    bitboards[ALL_STR] = bitboards[WHITE_STR] | bitboards[BLACK_STR]
+    return bitboards
 
-    state.bitboards['all'] = state.bitboards['white'] | state.bitboards['black']
-
-def _parse_active_colour(colour_fen: str, state):
+def _parse_active_colour(colour_fen: str):
     """Sets the active player"""
-    colour = WHITE if colour_fen == 'w' else BLACK
-    state.player = colour
+    return colour_fen == 'w'
 
-def _parse_castling_rights(castling_fen: str, state):
+def _parse_castling_rights(castling_fen: str):
     """Sets castling rights bitmask"""
     rights = 0
+    if WK in castling_fen: rights |= CASTLE_WK  # white kingside
+    if WQ in castling_fen: rights |= CASTLE_WQ  # white queenside
+    if BK in castling_fen: rights |= CASTLE_BK  # black kingside
+    if BQ in castling_fen: rights |= CASTLE_BQ  # black queenside
+    return rights
 
-    if 'K' in castling_fen: rights |= CASTLE_WK # white kingside
-    if 'Q' in castling_fen: rights |= CASTLE_WQ # white queenside
-    if 'k' in castling_fen: rights |= CASTLE_BK # black kingside
-    if 'q' in castling_fen: rights |= CASTLE_BQ # black queenside
-
-    state.castling = rights
-
-def _parse_en_passant(en_passant_fen: str, state):
+def _parse_en_passant(en_passant_fen: str):
     """Sets en passant square index"""
-    if en_passant_fen != '-': state.en_passant = BitBoard.algebraic_to_bit(en_passant_fen)
+    if en_passant_fen == '-': return NO_SQUARE
+    return algebraic_to_bit(en_passant_fen)

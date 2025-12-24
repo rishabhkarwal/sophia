@@ -1,15 +1,24 @@
 import time
-from engine.core.constants import WHITE, BLACK, INFINITY, MASK_FLAG
+from engine.core.constants import (
+    WHITE, BLACK, MATE, INFINITY,
+    MAX_DEPTH, TIME_CHECK_NODES
+)
 from engine.moves.generator import generate_pseudo_legal_moves
-from engine.board.move_exec import make_move, unmake_move, make_null_move, unmake_null_move, is_threefold_repetition
+from engine.board.move_exec import (
+    make_move, unmake_move,
+    make_null_move, unmake_null_move,
+    is_threefold_repetition
+)
 from engine.moves.legality import is_in_check
-from engine.search.transposition import TranspositionTable, FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
+from engine.search.transposition import (
+    TranspositionTable,
+    FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
+)
 from engine.search.evaluation import evaluate
 from engine.search.ordering import MoveOrdering
 from engine.uci.utils import send_command
-from engine.core.move import CAPTURE, PROMOTION_N, EP_CAPTURE, PROMO_CAP_N, move_to_uci
+from engine.core.move import is_capture, is_promotion, is_en_passant, move_to_uci
 from engine.search.syzygy import SyzygyHandler
-from engine.uci.utils import send_info_string
 
 class SearchEngine:
     def __init__(self, time_limit=2000, tt_size_mb=64):
@@ -47,13 +56,13 @@ class SearchEngine:
 
         return ' '.join(move_to_uci(m) for m in pv_moves)
 
-    def _get_cp_score(self, score, max_depth=100):
-        if INFINITY - abs(score) < max_depth: # MATE in 50 (max)
-            if score > 0: 
+    def _get_cp_score(self, score, max_mate_depth=MAX_DEPTH):
+        if INFINITY - abs(score) < max_mate_depth:
+            if score > 0:
                 ply_to_mate = INFINITY - score
                 mate_in = (ply_to_mate + 1) // 2
                 score_str = f"mate {mate_in}"
-            else: 
+            else:
                 ply_to_mate = INFINITY + score
                 mate_in = (ply_to_mate + 1) // 2
                 score_str = f"mate -{mate_in}"
@@ -68,35 +77,35 @@ class SearchEngine:
             syzygy_move, wdl, dtz = syzygy_result
             
             ply = 0
-            if wdl > 0: score = INFINITY - ply - abs(dtz) # winning
-            elif wdl < 0: score = -INFINITY + ply + abs(dtz) # losing
-            else: score = 0 # draw
+            if wdl > 0: score = INFINITY - ply - abs(dtz)
+            elif wdl < 0: score = -INFINITY + ply + abs(dtz)
+            else: score = 0
 
             score_str = self._get_cp_score(score)
 
             send_command(f"info depth {dtz} score {score_str} pv {syzygy_move} string syzygy hit")
 
-            self.tt.store(state.hash, 100, score, FLAG_EXACT, None) 
+            self.tt.store(state.hash, MAX_DEPTH, score, FLAG_EXACT, None)
 
             return syzygy_move
 
         self.nodes_searched = 0
         self.start_time = time.time()
-        self.root_colour = state.player
+        self.root_colour = state.is_white
         
         moves = generate_pseudo_legal_moves(state)
         legal_moves = []
         for move in moves:
             undo = make_move(state, move)
-            if not is_in_check(state, not state.player):
+            if not is_in_check(state, not state.is_white):
                 legal_moves.append(move)
             unmake_move(state, move, undo)
             
         if not legal_moves: return None
         moves = legal_moves
         
-        # sort logic: high bits for promotions (>=8) or captures (4, 5, >=12)
-        moves.sort(key=lambda m: (m & MASK_FLAG), reverse=True)
+        # sort captures and promotions to front
+        moves.sort(key=lambda m: (is_promotion(m) or is_capture(m)), reverse=True)
         
         best_move_so_far = moves[0]
         current_depth = 1
@@ -138,9 +147,8 @@ class SearchEngine:
 
                 send_command(f"info depth {current_depth} currmove {move_to_uci(best_move_so_far)} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull} pv {pv_string}")
 
-                if abs(score) >= INFINITY - 1000: # mate (or VERY good move found)
-                    #self.time_limit *= 0.5 # halve time limit instead to give chance to find faster mate
-                    break # just leave instead
+                if abs(score) >= INFINITY - 1000:
+                    break
                 
                 elapsed = time.time() - self.start_time
                 elapsed = elapsed * 1000
@@ -148,9 +156,9 @@ class SearchEngine:
                 if elapsed > self.time_limit * 0.9: break
                     
                 current_depth += 1
-                if current_depth > 100: break
+                if current_depth > MAX_DEPTH: break
                 
-            except TimeoutError: # when run ou t
+            except TimeoutError:
                 elapsed = time.time() - self.start_time
                 nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
                 hashfull = self.tt.get_hashfull()
@@ -197,24 +205,25 @@ class SearchEngine:
 
     def _alpha_beta(self, state, depth, alpha, beta, ply, allow_null=True):
         self.nodes_searched += 1
-        if (self.nodes_searched & 2047) == 0:
-            if time.time() - self.start_time > self.time_limit / 1000.0: raise TimeoutError() # forgot to convert to ms
+        if (self.nodes_searched & TIME_CHECK_NODES) == 0:
+            if time.time() - self.start_time > self.time_limit / 1000.0: 
+                raise TimeoutError()
         
         if is_threefold_repetition(state): return 0
         # 50-move rule (draw)
-        if state.halfmove_clock >= 100: return 0 # 100 halfmoves = 50 full moves
+        if state.halfmove_clock >= 100: return 0
 
         # syzygy leaf probe
         wdl = self.syzygy.probe_wdl(state)
         if wdl is not None:
-            dtz = self.syzygy.probe_dtz(state) # distance-to-zero: used to find the fastest mate
+            dtz = self.syzygy.probe_dtz(state)
             TB_WIN_SCORE = INFINITY - 1000
 
-            if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz) # winning
-            elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz) # losing
-            else: score = 0 # draw
+            if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
+            elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
+            else: score = 0
 
-            self.tt.store(state.hash, depth, score, FLAG_EXACT, None) # save result so don't have to convert / probe again for this position
+            self.tt.store(state.hash, depth, score, FLAG_EXACT, None)
             return score
 
         tt_entry = self.tt.probe(state.hash)
@@ -226,16 +235,16 @@ class SearchEngine:
 
         if depth <= 0: return self._quiescence(state, alpha, beta, ply)
 
-        in_check = is_in_check(state, state.player)
+        in_check = is_in_check(state, state.is_white)
 
         if allow_null and depth >= 3 and not in_check:
             undo_info = make_null_move(state)
             try:
-                reduction = 2 
+                reduction = 2
                 val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, allow_null=False)
                 if val >= beta: return beta
             except TimeoutError: raise
-            except Exception: pass 
+            except Exception: pass
             finally: unmake_null_move(state, undo_info)
 
         moves = generate_pseudo_legal_moves(state)
@@ -255,19 +264,18 @@ class SearchEngine:
             undo_info = make_move(state, move)
             
             # check legality AFTER making the move
-            if is_in_check(state, not state.player):
+            if is_in_check(state, not state.is_white):
                 unmake_move(state, move, undo_info)
                 continue
             
             legal_moves_count += 1
             
             # LMR logic
-            flag = (move & MASK_FLAG) >> 12
-            is_interesting = (flag == CAPTURE or flag == EP_CAPTURE or flag >= PROMOTION_N)
+            is_interesting = is_capture(move) or is_en_passant(move) or is_promotion(move)
             
-            needs_full = True 
+            needs_full = True
             if depth >= 3 and i >= 3 and not is_interesting and not in_check:
-                reduction = 1 
+                reduction = 1
                 if i >= 10: reduction = 2
                 reduced_depth = max(1, depth - 1 - reduction)
                 val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, allow_null=True)
@@ -298,8 +306,8 @@ class SearchEngine:
             if value > alpha: alpha = value
 
         if legal_moves_count == 0:
-            if in_check: return -INFINITY + ply # checkmate
-            return 0 # stalemate
+            if in_check: return -INFINITY + ply
+            return 0
 
         flag = FLAG_EXACT
         if best_value <= original_alpha: flag = FLAG_UPPERBOUND
@@ -310,7 +318,7 @@ class SearchEngine:
     def _quiescence(self, state, alpha, beta, ply):
         self.nodes_searched += 1
         
-        in_check = is_in_check(state, state.player)
+        in_check = is_in_check(state, state.is_white)
         
         if not in_check:
             evaluation = evaluate(state)
@@ -328,7 +336,7 @@ class SearchEngine:
             undo_info = make_move(state, move)
             
             # delayed legality check
-            if is_in_check(state, not state.player):
+            if is_in_check(state, not state.is_white):
                 unmake_move(state, move, undo_info)
                 continue
             

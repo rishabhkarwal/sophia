@@ -35,6 +35,8 @@ class UCI:
                 elif command == 'quit': break
                 
             except Exception:
+                import traceback
+                send_info_string(f"error: {traceback.format_exc()}")
                 continue
 
     def handle_uci(self):
@@ -48,14 +50,6 @@ class UCI:
         self.engine.tt.clear()
         self.engine.ordering.clear()
         self.state.history = []
-
-    def _warmup_jit(self):
-        send_info_string("warming up JIT compiler...")
-        warmup_fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
-        warmup_state = load_from_fen(warmup_fen)
-        self.engine.time_limit = 3000 # quick 3-second search
-        self.engine.get_best_move(warmup_state)
-        send_info_string("JIT warm-up complete")
 
     def handle_position(self, args):
         moves_idx = -1
@@ -110,12 +104,13 @@ class UCI:
                 elif args[i] == 'movetime': move_time = int(args[i + 1])
         except IndexError: pass
 
-        time_limit = 2000 
+        time_limit = 2000
 
-        if move_time: time_limit = move_time
+        if move_time: 
+            time_limit = move_time
         elif w_time is not None and b_time is not None:
-            my_time = w_time if self.state.player == WHITE else b_time
-            my_inc = w_inc if self.state.player == WHITE else b_inc
+            my_time = w_time if self.state.is_white else b_time
+            my_inc = w_inc if self.state.is_white else b_inc
             
             # estimate remaining moves (assume a game lasts 60 moves)
             moves_played = self.state.fullmove_number
@@ -129,7 +124,7 @@ class UCI:
                 time_limit = my_time / 5
                 
             # network / execution overhead: account for engine overhead and lag
-            overhead = 80 
+            overhead = 80
             time_limit = max(30, time_limit - overhead)
 
         self.engine.time_limit = int(time_limit)

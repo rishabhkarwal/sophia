@@ -3,7 +3,7 @@ import chess.syzygy
 import os
 import random
 from engine.search.utils import state_to_board
-from engine.core.constants import ALL_PIECES
+from engine.core.constants import ALL_PIECES, ALL_STR
 from engine.uci.utils import send_info_string
 
 class SyzygyHandler:
@@ -16,15 +16,15 @@ class SyzygyHandler:
         if os.path.exists(self.path):
             try:
                 self.tablebase = chess.syzygy.open_tablebase(self.path)
-                send_info_string(f"syzygy tablebase found @ {file_path}")
+                send_info_string(f"found syzygy tablebase in {file_path}")
             except Exception as e: send_info_string(f"syzygy error: {e}")
         else:
-            send_info_string(f"syzygy tablebase NOT found @ {file_path}")
+            send_info_string(f"syzygy tablebase NOT found in {file_path}")
 
     def get_best_move(self, state):
         if not self.tablebase: return None
 
-        if state.bitboards['all'].bit_count() > 5: return None # currently has tablebase for 3-4-5
+        if state.bitboards[ALL_STR].bit_count() > 5: return None # currently has tablebase for 3-4-5
 
 
         try: board = state_to_board(state)
@@ -89,7 +89,7 @@ class SyzygyHandler:
     def probe_wdl(self, state):
         if not self.tablebase: return None
         
-        if state.bitboards['all'].bit_count() > 5: return None
+        if state.bitboards[ALL_STR].bit_count() > 5: return None
 
         try:
             board = state_to_board(state)
@@ -100,7 +100,7 @@ class SyzygyHandler:
         """Returns DTZ score for the current state"""
         if not self.tablebase: return None
         
-        if state.bitboards['all'].bit_count() > 5: return None
+        if state.bitboards[ALL_STR].bit_count() > 5: return None
 
         try:
             board = state_to_board(state)

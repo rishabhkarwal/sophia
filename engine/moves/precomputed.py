@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple
 from engine.core.constants import (
     WHITE, BLACK,
     FILE_A, FILE_H, FILE_AB, FILE_GH,
-    FULL_BOARD
+    FULL_BOARD, NORTH
 )
 from engine.uci.utils import send_info_string
 
@@ -35,10 +35,10 @@ def generate_king_attacks(square: int) -> int:
     bb = 1 << square
     if not (bb & FILE_H): attacks |= (bb << 1) | (bb << 9) | (bb >> 7)
     if not (bb & FILE_A): attacks |= (bb >> 1) | (bb >> 9) | (bb << 7)
-    attacks |= (bb << 8) | (bb >> 8)
+    attacks |= (bb << NORTH) | (bb >> NORTH)
     return attacks & FULL_BOARD
 
-def generate_pawn_attacks(square: int, color: int) -> int:
+def generate_pawn_attacks(square: int, color: bool) -> int:
     attacks = 0
     bb = 1 << square
     if color == WHITE:

@@ -1,80 +1,107 @@
-from engine.core.utils import BitBoard
+from engine.core.utils import bit_to_algebraic
 from engine.core.constants import MASK_SOURCE, MASK_TARGET, MASK_FLAG
 
-# flag constants (4 bits: 12-15)
+# flag bit layout: [ Promotion | Capture | Special 1 | Special 0 ]
+ZERO        = 0b0000
 
-QUIET = 0 # 0000
-DOUBLE_PUSH = 1 # 0001
-CASTLE_KS = 2 # 0010 (Kingside)
-CASTLE_QS = 3 # 0011 (Queenside)
-CAPTURE = 4 # 0100
-EP_CAPTURE = 5 # 0101
+# flag masks
+PROMOTION   = 0b1000
+CAPTURE     = 0b0100
 
-# promotions (encoding: 1xxx)
-PROMOTION_N = 8 # 1000
-PROMOTION_B = 9 # 1001
-PROMOTION_R = 10 # 1010
-PROMOTION_Q = 11 # 1011
+# flag modifiers
+SPECIAL_1   = 0b0010
+SPECIAL_0   = 0b0001
 
-# promotion-captures (encoding: 11xx)
-PROMO_CAP_N     = 12 # 1100
-PROMO_CAP_B     = 13 # 1101
-PROMO_CAP_R     = 14 # 1110
-PROMO_CAP_Q     = 15 # 1111
+# move types
+QUIET       = ZERO
+DOUBLE_PUSH = SPECIAL_0
+CASTLE_KS   = SPECIAL_1
+CASTLE_QS   = SPECIAL_1 | SPECIAL_0
 
-# lookup map for promotion characters
-PROMO_CHARS = {
-    PROMOTION_N: 'n', PROMOTION_B: 'b', PROMOTION_R: 'r', PROMOTION_Q: 'q',
-    PROMO_CAP_N: 'n', PROMO_CAP_B: 'b', PROMO_CAP_R: 'r', PROMO_CAP_Q: 'q'
-}
+# capture types
+EN_PASSANT  = CAPTURE | SPECIAL_0
 
-def pack_move(start: int, target: int, flag: int = QUIET) -> int:
-    """Creates a 16-bit integer move"""
-    return start | (target << 6) | (flag << 12)
+# piece identifiers (for promotions)
+KNIGHT      = ZERO
+BISHOP      = SPECIAL_0
+ROOK        = SPECIAL_1
+QUEEN       = SPECIAL_1 | SPECIAL_0
+
+# promotions
+PROMOTION_N = PROMOTION | KNIGHT
+PROMOTION_B = PROMOTION | BISHOP
+PROMOTION_R = PROMOTION | ROOK
+PROMOTION_Q = PROMOTION | QUEEN
+
+# promotion captures
+PROMO_CAP_N = PROMOTION_N | CAPTURE
+PROMO_CAP_B = PROMOTION_B | CAPTURE
+PROMO_CAP_R = PROMOTION_R | CAPTURE
+PROMO_CAP_Q = PROMOTION_Q | CAPTURE
+
+# field shifts
+SHIFT_TARGET = 6
+SHIFT_FLAG   = 12
+
+# precomputed flag masks
+CAPTURE_FLAG = CAPTURE << SHIFT_FLAG
+PROMO_FLAG   = PROMOTION << SHIFT_FLAG
+EP_FLAG      = EN_PASSANT << SHIFT_FLAG
+
+# square names for UCI
+SQUARE_NAMES = [bit_to_algebraic(square) for square in range(64)]
+
+from engine.core.constants import BN, BB, BR, BQ
+PROMO_LOOKUP = (BN, BB, BR, BQ)
+
+def _pack(start: int, target: int, flag: int = QUIET) -> int:
+    """Internal helper to create a 16-bit integer move"""
+    return start | (target << SHIFT_TARGET) | (flag << SHIFT_FLAG)
 
 def get_start(move: int) -> int:
+    """Extract source square from move"""
     return move & MASK_SOURCE
 
 def get_target(move: int) -> int:
-    return (move & MASK_TARGET) >> 6
+    """Extract target square from move"""
+    return (move >> SHIFT_TARGET) & MASK_SOURCE
 
 def get_flag(move: int) -> int:
-    return (move & MASK_FLAG) >> 12
+    """Extract flag from move"""
+    return (move >> SHIFT_FLAG) & 0b1111
 
 def is_capture(move: int) -> bool:
-    """Returns if the move is a capture"""
-    flag = (move & MASK_FLAG) >> 12
-    return flag == CAPTURE or flag == EP_CAPTURE or flag >= PROMO_CAP_N
+    """Returns True if the move is a capture"""
+    return bool(move & CAPTURE_FLAG)
 
 def is_promotion(move: int) -> bool:
-    """Returns if the move is a promotion"""
-    flag = (move & MASK_FLAG) >> 12
-    return flag >= PROMOTION_N
+    """Returns True if the move is a promotion"""
+    return bool(move & PROMO_FLAG)
 
 def is_en_passant(move: int) -> bool:
-    """Returns if the move is en-passant"""
-    flag = (move & MASK_FLAG) >> 12
-    return flag == EP_CAPTURE
+    """Returns True if the move is en passant"""
+    return (move & MASK_FLAG) == EP_FLAG
 
 def is_castle(move: int) -> bool:
-    """Returns if the move is castling"""
-    flag = (move & MASK_FLAG) >> 12
+    """Returns True if the move is castling"""
+    flag = get_flag(move)
     return flag == CASTLE_KS or flag == CASTLE_QS
 
 def get_promo_piece(move: int) -> str:
-    """Returns 'q', 'r', 'b', or 'n'"""
-    flag = (move & MASK_FLAG) >> 12
-    return PROMO_CHARS.get(flag, 'q')
+    """returns promotion piece character using bit manipulation
+    
+    Extracts the piece type from the flag's lower 2 bits:
+    00 (0) -> knight, 01 (1) -> bBishop, 10 (2) -> eook, 11 (3) -> queen
+    """
+    idx = (move >> SHIFT_FLAG) & (SPECIAL_1 | SPECIAL_0)
+    return PROMO_LOOKUP[idx]
 
 def move_to_uci(move: int) -> str:
     """Converts integer move to UCI string"""
-    start = move & MASK_SOURCE
-    target = (move & MASK_TARGET) >> 6
-    flag = (move & MASK_FLAG) >> 12
+    start = get_start(move)
+    target = get_target(move)
+    uci_str = SQUARE_NAMES[start] + SQUARE_NAMES[target]
     
-    uci_str = BitBoard.bit_to_algebraic(start) + BitBoard.bit_to_algebraic(target)
-    
-    if flag >= PROMOTION_N:
-        uci_str += PROMO_CHARS[flag]
+    if is_promotion(move): uci_str += get_promo_piece(move)
         
     return uci_str

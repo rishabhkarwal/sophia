@@ -115,33 +115,32 @@ def benchmark(position='startpos', time_limit=5.0, engine_path='engine.bat'):
         process.wait()
 
 if __name__ == '__main__':
-    fen = '8/4k2p/8/8/8/8/P7/2KR3b w - - 2 2'
-    #fen = 'startpos'
-    
-    time_limit = 10
+    fen = '5B2/1P2P2P/2P1r3/2b1p3/6p1/2K2P1k/p7/nN5B w - - 0 1'
+
+    time_limit = 60
     benchmark(position=fen, time_limit=time_limit)
 
 """
-Testing Position: 8/4k2p/8/8/8/8/P7/2KR3b w - - 2 2 (syzygy)
-Time Limit: 10s
+Testing Position: 5B2/1P2P2P/2P1r3/2b1p3/6p1/2K2P1k/p7/nN5B w - - 0 1
+Time Limit: 60s
 
-info depth 1 currmove d1h1 score mate 1 nodes 36 nps 605 time 59 hashfull 0 pv d1h1
-bestmove d1h1
+info depth 1 currmove h7h8q score cp 1659 nodes 2657 nps 3671 time 723 hashfull 0 pv h7h8q
+info depth 2 currmove h7h8q score cp 1659 nodes 4971 nps 4524 time 1098 hashfull 0 pv h7h8q h3g3
+info depth 3 currmove h7h8q score cp 1659 nodes 7513 nps 5458 time 1376 hashfull 0 pv h7h8q h3g3 b7b8q
+info depth 4 currmove h7h8q score cp 1659 nodes 21269 nps 8371 time 2540 hashfull 0 pv h7h8q h3g3 b7b8q c5e7
+info depth 5 currmove h7h8q score cp 1584 nodes 65750 nps 12494 time 5262 hashfull 0 pv h7h8q h3g3 b7b8q a1b3 b8e5
+info depth 6 currmove h7h8q score cp 1584 nodes 120232 nps 15044 time 7991 hashfull 3 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5
+info depth 7 currmove h7h8q score cp 1584 nodes 183760 nps 19172 time 9584 hashfull 5 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5
+info depth 7 currmove h7h8q score cp 1584 nodes 183760 nps 19172 time 9584 hashfull 5 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5        
+info depth 8 currmove h7h8q score cp 1584 nodes 451473 nps 27107 time 16655 hashfull 22 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 
+info depth 9 currmove h7h8q score cp 1722 nodes 765433 nps 33195 time 23058 hashfull 30 pv h7h8q h3g3 b7b8q c5e7 f3g4 e7f8 h8f8 g3g4 f8f2
+info depth 10 currmove h7h8q score cp 1723 nodes 1380113 nps 38893 time 35484 hashfull 64 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 e5h5 h3g3
+info depth 11 currmove h7h8q score cp 1723 nodes 2282063 nps 45873 time 49747 hashfull 96 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 e5h5 h3g3 h5g4
+info nodes 2738176 nps 45617 time 60024 hashfull 114
+bestmove h7h8q
 
-Best Move: d1h1
-Time: 0.0608 seconds
-Nodes: 36
-NPS: 592 nodes/sec
-
-
-Testing Position: startpos (opening book)
-Time Limit: 10s
-
-info string found book move: e2e4
-bestmove e2e4
-
-Best Move: e2e4
-Time: 0.0020 seconds
-Nodes: 0
-NPS: 0 nodes/sec
+Best Move: h7h8q
+Time: 60.0287 seconds
+Nodes: 2,738,176
+NPS: 45,614 nodes/sec
 """

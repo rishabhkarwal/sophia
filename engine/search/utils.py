@@ -1,7 +1,8 @@
 import chess
 from engine.core.constants import (
     WHITE, NO_SQUARE,
-    CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ
+    CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
+    PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
 )
 
 def state_to_board(state):
@@ -9,8 +10,12 @@ def state_to_board(state):
     board = chess.Board.empty()
     
     piece_map = {
-        'P': chess.PAWN, 'N': chess.KNIGHT, 'B': chess.BISHOP, 
-        'R': chess.ROOK, 'Q': chess.QUEEN, 'K': chess.KING
+        PAWN: chess.PAWN, 
+        KNIGHT: chess.KNIGHT, 
+        BISHOP: chess.BISHOP,
+        ROOK: chess.ROOK, 
+        QUEEN: chess.QUEEN, 
+        KING: chess.KING
     }
 
     for piece, bb in state.bitboards.items():
@@ -30,17 +35,18 @@ def state_to_board(state):
             temp_bb ^= lsb
 
     # set turn
-    board.turn = (state.player == WHITE)
+    board.turn = state.is_white
 
     # set castling rights
     board.castling_rights = chess.BB_EMPTY
-    if state.castling & CASTLE_WK: board.castling_rights |= chess.BB_H1
-    if state.castling & CASTLE_WQ: board.castling_rights |= chess.BB_A1
-    if state.castling & CASTLE_BK: board.castling_rights |= chess.BB_H8
-    if state.castling & CASTLE_BQ: board.castling_rights |= chess.BB_A8
+    if state.castling_rights & CASTLE_WK: board.castling_rights |= chess.BB_H1
+    if state.castling_rights & CASTLE_WQ: board.castling_rights |= chess.BB_A1
+    if state.castling_rights & CASTLE_BK: board.castling_rights |= chess.BB_H8
+    if state.castling_rights & CASTLE_BQ: board.castling_rights |= chess.BB_A8
 
     # set en-passant
-    if state.en_passant != NO_SQUARE: board.ep_square = state.en_passant
+    if state.en_passant_square != NO_SQUARE:
+        board.ep_square = state.en_passant_square
 
     # set clocks
     board.halfmove_clock = state.halfmove_clock

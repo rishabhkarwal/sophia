@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 
 from engine.core.constants import ALL_PIECES
 from engine.core.zobrist import compute_hash
@@ -7,9 +7,9 @@ from engine.core.zobrist import compute_hash
 @dataclass(frozen=False, slots=True)
 class State:
     bitboards: Dict[str, int]
-    player: int
-    castling: int
-    en_passant: int
+    is_white: bool
+    castling_rights: int
+    en_passant_square: int
     halfmove_clock: int
     fullmove_number: int
     history: List[int]
