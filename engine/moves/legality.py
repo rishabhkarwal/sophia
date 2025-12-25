@@ -3,8 +3,8 @@ from engine.core.constants import (
     WHITE_PIECES, BLACK_PIECES,
     MASK_SOURCE,
     WK, BK,
-    ALL_STR
 )
+from engine.core.move import SHIFT_TARGET
 from engine.board.state import State
 from engine.moves.precomputed import (
     KNIGHT_ATTACKS, KING_ATTACKS,
@@ -12,13 +12,12 @@ from engine.moves.precomputed import (
     BISHOP_TABLE, BISHOP_MASKS,
     WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
 )
-from engine.core.move import get_target
 from engine.board.move_exec import make_move, unmake_move
 
 def is_square_attacked(state: State, sq: int, colour: bool) -> bool:
     """Check if a square is attacked by a given colour"""
     bitboards = state.bitboards
-    all_pieces = bitboards[ALL_STR]
+    all_pieces = bitboards[WHITE] | bitboards[BLACK]
     
     if colour == WHITE:
         P, N, B, R, Q, K = WHITE_PIECES
@@ -30,15 +29,15 @@ def is_square_attacked(state: State, sq: int, colour: bool) -> bool:
     if KNIGHT_ATTACKS[sq] & bitboards[N]: return True
     if KING_ATTACKS[sq] & bitboards[K]: return True
     
-    if BISHOP_TABLE[(sq, all_pieces & BISHOP_MASKS[sq])] & (bitboards[B] | bitboards[Q]): return True
-    if ROOK_TABLE[(sq, all_pieces & ROOK_MASKS[sq])] & (bitboards[R] | bitboards[Q]): return True
+    if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bitboards[B] | bitboards[Q]): return True
+    if ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & (bitboards[R] | bitboards[Q]): return True
     return False
 
 def get_attackers(state: State, sq: int, colour: bool) -> int:
     """Get all pieces of 'colour' that attack the given square"""
     attackers = 0
     bitboards = state.bitboards
-    all_pieces = bitboards[ALL_STR]
+    all_pieces = bitboards[WHITE] | bitboards[BLACK]
     
     if colour == WHITE:
         P, N, B, R, Q, K = WHITE_PIECES
@@ -51,8 +50,8 @@ def get_attackers(state: State, sq: int, colour: bool) -> int:
     if KNIGHT_ATTACKS[sq] & bitboards[N]: attackers |= KNIGHT_ATTACKS[sq] & bitboards[N]
     if KING_ATTACKS[sq] & bitboards[K]: attackers |= KING_ATTACKS[sq] & bitboards[K]
     
-    attackers |= BISHOP_TABLE[(sq, all_pieces & BISHOP_MASKS[sq])] & (bitboards[B] | bitboards[Q])
-    attackers |= ROOK_TABLE[(sq, all_pieces & ROOK_MASKS[sq])] & (bitboards[R] | bitboards[Q])
+    attackers |= BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bitboards[B] | bitboards[Q])
+    attackers |= ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & (bitboards[R] | bitboards[Q])
     return attackers
 
 def is_in_check(state: State, colour: bool) -> bool:
@@ -64,13 +63,14 @@ def is_in_check(state: State, colour: bool) -> bool:
 
 def is_legal(state: State, move: int) -> bool:
     start_sq = move & MASK_SOURCE
-    target_sq = get_target(move)
-    
+
     if (1 << start_sq) & (state.bitboards[WK] | state.bitboards[BK]):
+        target_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
         opponent = not state.is_white
-        state.bitboards[ALL_STR] &= ~(1 << start_sq)
+        king_idx = WK if state.is_white else BK
+        state.bitboards[king_idx] &= ~(1 << start_sq)
         is_attacked = is_square_attacked(state, target_sq, opponent)
-        state.bitboards[ALL_STR] |= (1 << start_sq)
+        state.bitboards[king_idx] |= (1 << start_sq)
         return not is_attacked
 
     undo_info = make_move(state, move)

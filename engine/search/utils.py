@@ -1,55 +1,52 @@
 import chess
 from engine.core.constants import (
-    WHITE, NO_SQUARE,
-    CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
-    PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK,
+    NULL, WHITE, BLACK,
+    WHITE, BLACK
 )
 
 def state_to_board(state):
-    """Converts State to python-chess Board"""
-    board = chess.Board.empty()
-    
+    """Convert internal state to python-chess board"""
+    board = chess.Board(fen=None)
+    board.clear()
+
     piece_map = {
-        PAWN: chess.PAWN, 
-        KNIGHT: chess.KNIGHT, 
-        BISHOP: chess.BISHOP,
-        ROOK: chess.ROOK, 
-        QUEEN: chess.QUEEN, 
-        KING: chess.KING
+        WP: chess.PAWN, WN: chess.KNIGHT, WB: chess.BISHOP,
+        WR: chess.ROOK, WQ: chess.QUEEN, WK: chess.KING,
+        BP: chess.PAWN, BN: chess.KNIGHT, BB: chess.BISHOP,
+        BR: chess.ROOK, BQ: chess.QUEEN, BK: chess.KING
     }
-
-    for piece, bb in state.bitboards.items():
-        if bb == 0: continue
+    
+    for piece_idx in range(2, 16):
+        if piece_idx not in piece_map:
+            continue
+            
+        bb = state.bitboards[piece_idx]
+        piece_type = piece_map[piece_idx]
+        colour = chess.WHITE if (piece_idx & WHITE) else chess.BLACK
         
-        if piece.upper() not in piece_map: continue
-
-        piece_type = piece_map[piece.upper()]
-        color = chess.WHITE if piece.isupper() else chess.BLACK
-        
-        # sets pieces
-        temp_bb = bb
-        while temp_bb:
-            lsb = temp_bb & -temp_bb
+        while bb:
+            lsb = bb & -bb
             sq = lsb.bit_length() - 1
-            board.set_piece_at(sq, chess.Piece(piece_type, color))
-            temp_bb ^= lsb
+            board.set_piece_at(sq, chess.Piece(piece_type, colour))
+            bb &= bb - 1
 
-    # set turn
-    board.turn = state.is_white
-
-    # set castling rights
-    board.castling_rights = chess.BB_EMPTY
+    board.turn = chess.WHITE if state.is_white else chess.BLACK
+    
+    board.castling_rights = 0
+    from engine.core.constants import CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ
+    from engine.core.constants import A1, H1, A8, H8
+    
     if state.castling_rights & CASTLE_WK: board.castling_rights |= chess.BB_H1
     if state.castling_rights & CASTLE_WQ: board.castling_rights |= chess.BB_A1
     if state.castling_rights & CASTLE_BK: board.castling_rights |= chess.BB_H8
     if state.castling_rights & CASTLE_BQ: board.castling_rights |= chess.BB_A8
 
-    # set en-passant
-    if state.en_passant_square != NO_SQUARE:
-        board.ep_square = state.en_passant_square
-
-    # set clocks
+    if state.en_passant_square != NULL: board.ep_square = state.en_passant_square
+    else: board.ep_square = None
+    
     board.halfmove_clock = state.halfmove_clock
     board.fullmove_number = state.fullmove_number
-
+    
     return board

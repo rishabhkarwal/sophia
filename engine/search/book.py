@@ -10,7 +10,7 @@ class OpeningBook:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.book_path = os.path.join(current_dir, file_path)
         self.is_book = os.path.exists(self.book_path)
-        send_info_string(f"opening book{'' if self.is_book else ' NOT'} found @ {file_path}") 
+        send_info_string(f"opening book{'' if self.is_book else ' NOT'} found in '{file_path}'") 
 
     def get_move(self, state):
         """Retrieves book move"""

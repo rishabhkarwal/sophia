@@ -1,5 +1,7 @@
 """Piece-Square Tables for PeSTO evaluation"""
 
+from engine.core.constants import PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
+
 MG_PAWN = [
       0,   0,   0,   0,   0,   0,   0,   0,
      98, 134,  61,  95,  68, 126,  34, -11,
@@ -131,3 +133,12 @@ EG_KING = [
     -27, -11,   4,  13,  14,   4,  -5, -17,
     -53, -34, -21, -11, -28, -14, -24, -43,
 ]
+
+PSQTs = {
+    PAWN: (MG_PAWN, EG_PAWN),
+    KNIGHT: (MG_KNIGHT, EG_KNIGHT),
+    BISHOP: (MG_BISHOP, EG_BISHOP),
+    ROOK: (MG_ROOK, EG_ROOK),
+    QUEEN: (MG_QUEEN, EG_QUEEN),
+    KING: (MG_KING, EG_KING)
+}

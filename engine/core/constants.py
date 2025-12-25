@@ -1,20 +1,62 @@
 NAME = 'Indigo'
 AUTHOR = '@rishabhkarwal'
 
-# board state
-WHITE = True
-BLACK = False
-NO_SQUARE = -1
+# null value for empty squares and pieces
+NULL = -1
+
+# colours
+WHITE = 1
+BLACK = 0
+
+# piece type encoding (shifted left by 1 to leave room for colour bit)
+PAWN   = 0b001 << 1  # 2
+KNIGHT = 0b010 << 1  # 4
+BISHOP = 0b011 << 1  # 6
+ROOK   = 0b100 << 1  # 8
+QUEEN  = 0b101 << 1  # 10
+KING   = 0b111 << 1  # 14
+
+# white pieces (colour bit = 1)
+WP = WHITE | PAWN    # 3
+WN = WHITE | KNIGHT  # 5
+WB = WHITE | BISHOP  # 7
+WR = WHITE | ROOK    # 9
+WQ = WHITE | QUEEN   # 11
+WK = WHITE | KING    # 15
+
+# black pieces (colour bit = 0)
+BP = BLACK | PAWN    # 2
+BN = BLACK | KNIGHT  # 4
+BB = BLACK | BISHOP  # 6
+BR = BLACK | ROOK    # 8
+BQ = BLACK | QUEEN   # 10
+BK = BLACK | KING    # 14
+
+# pieces stored at their natural indices (2-15)
+# white and black aggregate boards at (0-1)
+
+# piece arrays
+WHITE_PIECES = [WP, WN, WB, WR, WQ, WK]
+BLACK_PIECES = [BP, BN, BB, BR, BQ, BK]
+ALL_PIECES = WHITE_PIECES + BLACK_PIECES
+
+# piece to UCI string
+PIECE_STR = {
+    WP: 'P', WN: 'N', WB: 'B', WR: 'R', WQ: 'Q', WK: 'K',
+    BP: 'p', BN: 'n', BB: 'b', BR: 'r', BQ: 'q', BK: 'k',
+    NULL: ' '
+}
+CHAR_TO_PIECE = {v: k for k, v in PIECE_STR.items() if k != NULL}
 
 # castling rights bitmask
-CASTLE_WK = 1 # 0001
-CASTLE_WQ = 2 # 0010
-CASTLE_BK = 4 # 0100
-CASTLE_BQ = 8 # 1000
+CASTLE_WK = 0b0001
+CASTLE_WQ = 0b0010
+CASTLE_BK = 0b0100
+CASTLE_BQ = 0b1000
 
-# evaluation
+# evaluation constants
 INFINITY = 100_000
-MATE = 100_000  # mate score
+MATE = 100_000
 
 # file masks
 FILE_A = 0x0101010101010101
@@ -48,32 +90,13 @@ A6, B6, C6, D6, E6, F6, G6, H6 = 40, 41, 42, 43, 44, 45, 46, 47
 A7, B7, C7, D7, E7, F7, G7, H7 = 48, 49, 50, 51, 52, 53, 54, 55
 A8, B8, C8, D8, E8, F8, G8, H8 = 56, 57, 58, 59, 60, 61, 62, 63
 
-# piece characters
-PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING = 'P', 'N', 'B', 'R', 'Q', 'K'
-
-# white pieces
-WP, WN, WB, WR, WQ, WK = [piece.upper() for piece in [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING]]
-
-# black pieces
-BP, BN, BB, BR, BQ, BK = [piece.lower() for piece in [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING]]
-
-# piece groupings
-WHITE_PIECES = (WP, WN, WB, WR, WQ, WK)
-BLACK_PIECES = (BP, BN, BB, BR, BQ, BK)
-ALL_PIECES = WHITE_PIECES + BLACK_PIECES
-
-# bitboard string keys
-WHITE_STR = 'white'
-BLACK_STR = 'black'
-ALL_STR = 'all'
-
 # move encoding masks
-MASK_SOURCE = 0b0000000000111111 # 6 bits for source square
-MASK_TARGET = 0b0000111111000000 # 6 bits for target square
-MASK_FLAG   = 0b1111000000000000 # 4 bits for move flags
+MASK_SOURCE = 0b0000000000111111
+MASK_TARGET = 0b0000111111000000
+MASK_FLAG   = 0b1111000000000000
 
 # bit manipulation
-FLIP_BOARD = 56  # XOR to flip rank for FEN parsing
+FLIP_BOARD = 56 # XOR to mirror board
 
 # directional offsets
 NORTH = 8
@@ -82,5 +105,5 @@ EAST  = 1
 WEST  = -EAST
 
 # search configuration
-MAX_DEPTH = 100 # maximum search depth
-TIME_CHECK_NODES = 2047 # check time every N nodes
+MAX_DEPTH = 100
+TIME_CHECK_NODES = 2047

@@ -3,6 +3,10 @@ from engine.core.constants import (
     WHITE, BLACK, MATE, INFINITY,
     MAX_DEPTH, TIME_CHECK_NODES
 )
+from engine.core.move import (
+    CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
+    move_to_uci
+)
 from engine.moves.generator import generate_pseudo_legal_moves
 from engine.board.move_exec import (
     make_move, unmake_move,
@@ -17,7 +21,6 @@ from engine.search.transposition import (
 from engine.search.evaluation import evaluate
 from engine.search.ordering import MoveOrdering
 from engine.uci.utils import send_command
-from engine.core.move import is_capture, is_promotion, is_en_passant, move_to_uci
 from engine.search.syzygy import SyzygyHandler
 
 class SearchEngine:
@@ -104,8 +107,8 @@ class SearchEngine:
         if not legal_moves: return None
         moves = legal_moves
         
-        # sort captures and promotions to front
-        moves.sort(key=lambda m: (is_promotion(m) or is_capture(m)), reverse=True)
+        # sort captures and promotions to front (inline checks)
+        moves.sort(key=lambda m: ((m & PROMO_FLAG) or (m & CAPTURE_FLAG)), reverse=True)
         
         best_move_so_far = moves[0]
         current_depth = 1
@@ -270,8 +273,8 @@ class SearchEngine:
             
             legal_moves_count += 1
             
-            # LMR logic
-            is_interesting = is_capture(move) or is_en_passant(move) or is_promotion(move)
+            # LMR logic (inline checks)
+            is_interesting = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
             
             needs_full = True
             if depth >= 3 and i >= 3 and not is_interesting and not in_check:

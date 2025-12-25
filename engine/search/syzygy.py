@@ -3,7 +3,7 @@ import chess.syzygy
 import os
 import random
 from engine.search.utils import state_to_board
-from engine.core.constants import ALL_PIECES, ALL_STR
+from engine.core.constants import WHITE, BLACK
 from engine.uci.utils import send_info_string
 
 class SyzygyHandler:
@@ -16,24 +16,22 @@ class SyzygyHandler:
         if os.path.exists(self.path):
             try:
                 self.tablebase = chess.syzygy.open_tablebase(self.path)
-                send_info_string(f"found syzygy tablebase in {file_path}")
+                send_info_string(f"found syzygy tablebase in '{file_path}'")
             except Exception as e: send_info_string(f"syzygy error: {e}")
         else:
-            send_info_string(f"syzygy tablebase NOT found in {file_path}")
+            send_info_string(f"syzygy tablebase NOT found in '{file_path}'")
 
     def get_best_move(self, state):
         if not self.tablebase: return None
 
-        if state.bitboards[ALL_STR].bit_count() > 5: return None # currently has tablebase for 3-4-5
-
+        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
+        if all_pieces.bit_count() > 5: return None 
 
         try: board = state_to_board(state)
         except Exception: return None
 
-        try: 
-            current_wdl = self.tablebase.probe_wdl(board)
-        except chess.syzygy.MissingTableError: 
-            return None
+        try: current_wdl = self.tablebase.probe_wdl(board)
+        except chess.syzygy.MissingTableError: return None
 
         if current_wdl is None: return None
 
@@ -42,44 +40,64 @@ class SyzygyHandler:
 
         best_move = None
         best_dtz = float('inf')
-        max_dtz = -1
-
+        
         moves = list(board.legal_moves)
         random.shuffle(moves)
 
         for move in moves:
-            # if winning: don't draw
+            # if winning, avoid repeating positions 
             if current_wdl > 0 and board.is_repetition(3): continue
 
             board.push(move)
-            try:
-                outcome_wdl = self.tablebase.probe_wdl(board)
-                outcome_dtz = self.tablebase.probe_dtz(board)
-            except:
+            
+            if board.is_checkmate():
                 board.pop()
-                continue
+                return (move.uci(), 2, 0) 
+
+            if board.is_game_over():
+                result_wdl = 0 
+                result_dtz = 0
+            else:
+                try:
+                    result_wdl = self.tablebase.probe_wdl(board)
+                    result_dtz = self.tablebase.probe_dtz(board)
+                except:
+                    board.pop()
+                    continue
+            
             board.pop()
 
-            if outcome_wdl is None or outcome_dtz is None: continue
+            if result_wdl is None or result_dtz is None: continue
 
-            # winning: find move that leads to fastest conversion (lowest DTZ)
+            # winning (WDL > 0)
             if current_wdl > 0:
-                if outcome_wdl == -2 or outcome_wdl == -1: # opponent is losing
-                    if abs(outcome_dtz) < best_dtz:
-                        best_dtz = abs(outcome_dtz)
-                        best_move = move
-            
-            # drawing: maintain the draw
-            elif current_wdl == 0:
-                if outcome_wdl == 0:
-                    best_move = move
-                    break
+                if result_wdl < 0:
+                    is_zeroing = board.is_capture(move) or move.piece_type == chess.PAWN
 
-            # losing: delay the loss as long as possible (highest DTZ)
+                    move_dtz = abs(result_dtz)
+                    
+                    if is_zeroing: move_dtz = 0 
+
+                    if move_dtz < best_dtz:
+                        best_dtz = move_dtz
+                        best_move = move
+
+            # draw (WDL = 0)
+            elif current_wdl == 0:
+                if result_wdl == 0:
+                    best_move = move
+                    break 
+
+            # losing (WDL < 0)
             elif current_wdl < 0:
-                if outcome_wdl == 2 or outcome_wdl == 1:
-                    if abs(outcome_dtz) > max_dtz:
-                        max_dtz = abs(outcome_dtz)
+                # if we must lose, make it take as long as possible: maximise DTZ
+                if result_wdl > 0:
+                    move_dtz = abs(result_dtz)
+
+                    if best_dtz == float('inf'): best_dtz = -1
+                    
+                    if move_dtz > best_dtz:
+                        best_dtz = move_dtz
                         best_move = move
 
         if best_move: return (best_move.uci(), current_wdl, root_dtz)
@@ -88,26 +106,21 @@ class SyzygyHandler:
 
     def probe_wdl(self, state):
         if not self.tablebase: return None
-        
-        if state.bitboards[ALL_STR].bit_count() > 5: return None
-
+        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
+        if all_pieces.bit_count() > 5: return None
         try:
             board = state_to_board(state)
             return self.tablebase.probe_wdl(board)
         except: return None
 
     def probe_dtz(self, state):
-        """Returns DTZ score for the current state"""
         if not self.tablebase: return None
-        
-        if state.bitboards[ALL_STR].bit_count() > 5: return None
-
+        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
+        if all_pieces.bit_count() > 5: return None
         try:
             board = state_to_board(state)
             return self.tablebase.probe_dtz(board)
-        except: 
-            return None
+        except: return None
 
     def close(self):
-        if self.tablebase:
-            self.tablebase.close()
+        if self.tablebase: self.tablebase.close()

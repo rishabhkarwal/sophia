@@ -1,14 +1,15 @@
 from typing import List
 from engine.core.constants import (
-    WHITE, BLACK, CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
+    NULL, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
+    CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
     A8, H1, E1, F1, G1, C1, D1, B1, E8, F8, G8, C8, D8, B8,
     RANK_3, RANK_6,
     WHITE_PIECES, BLACK_PIECES,
-    MASK_SOURCE, MASK_TARGET, NO_SQUARE,
-    NORTH, SOUTH,
+    MASK_SOURCE,
     WP, BP, WN, BN, WB, BB, WR, BR, WQ, BQ, WK, BK,
-    WHITE_STR, BLACK_STR, ALL_STR
+    WHITE, BLACK, NORTH, SOUTH
 )
+from engine.core.move import SHIFT_TARGET
 from engine.board.state import State
 from engine.core.move import (
     QUIET, CAPTURE, EN_PASSANT,
@@ -27,24 +28,22 @@ from engine.moves.precomputed import (
 )
 
 def get_legal_moves(state: State, captures_only=False) -> List[int]:
-    """Generate all legal moves (integers)"""
     pseudo_legal = generate_pseudo_legal_moves(state, captures_only)
     return [move for move in pseudo_legal if is_legal(state, move)]
 
 def generate_pseudo_legal_moves(state: State, captures_only=False) -> List[int]:
-    """Generate all pseudo-legal moves"""
     moves: List[int] = []
     bitboards = state.bitboards
-    all_pieces = bitboards[ALL_STR]
+    all_pieces = bitboards[WHITE] | bitboards[BLACK]
     
     if state.is_white:
-        active = bitboards[WHITE_STR]
-        opponent = bitboards[BLACK_STR]
+        active = bitboards[WHITE]
+        opponent = bitboards[BLACK]
         P, N, B, R, Q, K = WHITE_PIECES
         pawn_attacks = WHITE_PAWN_ATTACKS
     else:
-        active = bitboards[BLACK_STR]
-        opponent = bitboards[WHITE_STR]
+        active = bitboards[BLACK]
+        opponent = bitboards[WHITE]
         P, N, B, R, Q, K = BLACK_PIECES
         pawn_attacks = BLACK_PAWN_ATTACKS
 
@@ -58,7 +57,7 @@ def generate_pseudo_legal_moves(state: State, captures_only=False) -> List[int]:
     
     return moves
 
-def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: bool, all_pieces: int, enemy: int, attack_table: List[int], captures_only: bool):
+def _gen_pawn_moves(state: State, moves: List[int], pawn_key: int, colour: bool, all_pieces: int, enemy: int, attack_table: List[int], captures_only: bool):
     pawns = state.bitboards[pawn_key]
     if colour == WHITE:
         direction = NORTH
@@ -117,7 +116,7 @@ def _gen_pawn_moves(state: State, moves: List[int], pawn_key: str, colour: bool,
             else:
                 moves.append(_pack(from_sq, to_sq, CAPTURE))
         
-        if state.en_passant_square != NO_SQUARE:
+        if state.en_passant_square != NULL:
             if attack_table[from_sq] & (1 << state.en_passant_square):
                 moves.append(_pack(from_sq, state.en_passant_square, EN_PASSANT))
 
@@ -193,7 +192,7 @@ def _gen_bishop_moves(pieces: int, moves: List[int], all_pieces: int, active: in
         pieces &= pieces - 1
         
         mask = BISHOP_MASKS[from_sq]
-        targets = BISHOP_TABLE[(from_sq, all_pieces & mask)] & ~active
+        targets = BISHOP_TABLE[from_sq][all_pieces & mask] & ~active
         if captures_only: targets &= enemy
         
         while targets:
@@ -210,7 +209,7 @@ def _gen_rook_moves(pieces: int, moves: List[int], all_pieces: int, active: int,
         pieces &= pieces - 1
         
         mask = ROOK_MASKS[from_sq]
-        targets = ROOK_TABLE[(from_sq, all_pieces & mask)] & ~active
+        targets = ROOK_TABLE[from_sq][all_pieces & mask] & ~active
         if captures_only: targets &= enemy
         
         while targets:
@@ -228,7 +227,7 @@ def _gen_queen_moves(pieces: int, moves: List[int], all_pieces: int, active: int
         
         r_mask = ROOK_MASKS[from_sq]
         b_mask = BISHOP_MASKS[from_sq]
-        targets = (ROOK_TABLE[(from_sq, all_pieces & r_mask)] | BISHOP_TABLE[(from_sq, all_pieces & b_mask)]) & ~active
+        targets = (ROOK_TABLE[from_sq][all_pieces & r_mask] | BISHOP_TABLE[from_sq][all_pieces & b_mask]) & ~active
         if captures_only: targets &= enemy
         
         while targets:

@@ -4,7 +4,7 @@ from engine.core.constants import (
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
-    ALL_STR, FLIP_BOARD
+    WHITE, BLACK, FLIP_BOARD
 )
 from engine.moves.precomputed import (
     KNIGHT_ATTACKS,
@@ -14,27 +14,17 @@ from engine.moves.precomputed import (
     ROOK_MASKS,
     ROOK_TABLE
 )
-from engine.search.psqt import (
-    MG_PAWN, EG_PAWN,
-    MG_KNIGHT, EG_KNIGHT,
-    MG_BISHOP, EG_BISHOP,
-    MG_ROOK, EG_ROOK,
-    MG_QUEEN, EG_QUEEN,
-    MG_KING, EG_KING
-)
+from engine.search.psqt import PSQTs
 
-"""PeSTO Evaluation Function"""
-
-# Piece values
+# piece values
 MG_VALUES = {PAWN: 82, KNIGHT: 337, BISHOP: 365, ROOK: 477, QUEEN: 1025, KING: 0}
 EG_VALUES = {PAWN: 94, KNIGHT: 281, BISHOP: 297, ROOK: 512, QUEEN: 936, KING: 0}
 
-# Game phase increments
+# game phase increments
 PHASE_INC = {PAWN: 0, KNIGHT: 1, BISHOP: 1, ROOK: 2, QUEEN: 4, KING: 0}
 MAX_PHASE = 4 * PHASE_INC[KNIGHT] + 4 * PHASE_INC[BISHOP] + 4 * PHASE_INC[ROOK] + 2 * PHASE_INC[QUEEN]
 
 PASSED_PAWN_BONUS = [0, 10, 17, 15, 62, 168, 276, 0]
-
 ISOLATED_PAWN_PENALTY = -10
 DOUBLED_PAWN_PENALTY = -12
 BISHOP_PAIR_BONUS = 25
@@ -42,47 +32,39 @@ ROOK_OPEN_FILE = 10
 ROOK_SEMI_OPEN_FILE = 5
 CONNECTED_ROOKS_BONUS = 15
 
-PSQTs = {
-    PAWN: (MG_PAWN, EG_PAWN),
-    KNIGHT: (MG_KNIGHT, EG_KNIGHT),
-    BISHOP: (MG_BISHOP, EG_BISHOP),
-    ROOK: (MG_ROOK, EG_ROOK),
-    QUEEN: (MG_QUEEN, EG_QUEEN),
-    KING: (MG_KING, EG_KING)
-}
 
-# Piece indices for array access
-PIECE_INDICES = {
-    WP: 0, WN: 1, WB: 2, WR: 3, WQ: 4, WK: 5,
-    BP: 6, BN: 7, BB: 8, BR: 9, BQ: 10, BK: 11
-}
-
-MG_TABLE = [[0] * 64 for _ in range(12)]
-EG_TABLE = [[0] * 64 for _ in range(12)]
-PHASE_WEIGHTS = [0] * 12
+MG_TABLE = [[0] * 64 for _ in range(16)]
+EG_TABLE = [[0] * 64 for _ in range(16)]
+PHASE_WEIGHTS = [0] * 16
 
 PASSED_PAWN_MASKS = [[0] * 64 for _ in range(2)]
 FILE_MASKS = [0] * 8
 ADJACENT_FILE_MASKS = [0] * 8
 
 def init_eval_tables():
-    # white pieces (indices 0-5)
-    for piece_type, (mg_val, eg_val) in PSQTs.items():
-        white_piece = piece_type.upper()
-        idx = PIECE_INDICES[white_piece]
-        PHASE_WEIGHTS[idx] = PHASE_INC[piece_type]
-        MG_TABLE[idx] = [MG_VALUES[piece_type] + val for val in mg_val]
-        EG_TABLE[idx] = [EG_VALUES[piece_type] + val for val in eg_val]
-
-    # black pieces (indices 6-11)
-    for piece_type, (mg_val, eg_val) in PSQTs.items():
-        black_piece = piece_type.lower()
-        idx = PIECE_INDICES[black_piece]
-        PHASE_WEIGHTS[idx] = PHASE_INC[piece_type]
+    piece_type_map = {
+        PAWN: (PAWN, MG_VALUES[PAWN], EG_VALUES[PAWN], PHASE_INC[PAWN]),
+        KNIGHT: (KNIGHT, MG_VALUES[KNIGHT], EG_VALUES[KNIGHT], PHASE_INC[KNIGHT]),
+        BISHOP: (BISHOP, MG_VALUES[BISHOP], EG_VALUES[BISHOP], PHASE_INC[BISHOP]),
+        ROOK: (ROOK, MG_VALUES[ROOK], EG_VALUES[ROOK], PHASE_INC[ROOK]),
+        QUEEN: (QUEEN, MG_VALUES[QUEEN], EG_VALUES[QUEEN], PHASE_INC[QUEEN]),
+        KING: (KING, MG_VALUES[KING], EG_VALUES[KING], PHASE_INC[KING])
+    }
+    
+    for p_type, (base_type, mg_val, eg_val, phase_inc) in piece_type_map.items():
+        mg_psqt, eg_psqt = PSQTs[base_type]
+        
+        w_piece = WHITE | p_type
+        PHASE_WEIGHTS[w_piece] = phase_inc
+        MG_TABLE[w_piece] = [mg_val + val for val in mg_psqt]
+        EG_TABLE[w_piece] = [eg_val + val for val in eg_psqt]
+        
+        b_piece = BLACK | p_type
+        PHASE_WEIGHTS[b_piece] = phase_inc
         for sq in range(64):
             flipped_sq = sq ^ FLIP_BOARD
-            MG_TABLE[idx][sq] = -(MG_VALUES[piece_type] + mg_val[flipped_sq])
-            EG_TABLE[idx][sq] = -(EG_VALUES[piece_type] + eg_val[flipped_sq])
+            MG_TABLE[b_piece][sq] = -(mg_val + mg_psqt[flipped_sq])
+            EG_TABLE[b_piece][sq] = -(eg_val + eg_psqt[flipped_sq])
     
     # file masks
     for f in range(8):
@@ -112,11 +94,11 @@ init_eval_tables()
 
 def calculate_initial_score(state):
     mg, eg, phase = 0, 0, 0
-
-    for piece_char, bb in state.bitboards.items():
-        if piece_char not in PIECE_INDICES: continue
-
-        p_idx = PIECE_INDICES[piece_char]
+    
+    for p_idx in [WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK]:
+        bb = state.bitboards[p_idx]
+        if not bb: continue
+        
         count = bb.bit_count()
         phase += PHASE_WEIGHTS[p_idx] * count
 
@@ -158,7 +140,7 @@ def evaluate(state):
     evaluation = (state.mg_score * mg_phase + state.eg_score * eg_phase) // MAX_PHASE
     
     bitboards = state.bitboards
-    all_pieces = bitboards[ALL_STR]
+    all_pieces = bitboards[WHITE] | bitboards[BLACK]
     w_pawns = bitboards[WP]
     b_pawns = bitboards[BP]
     
@@ -205,7 +187,7 @@ def evaluate(state):
         if rooks.bit_count() >= 2:
             r1 = (rooks & -rooks).bit_length() - 1
             r2 = (rooks & (rooks - 1)).bit_length() - 1
-            if ROOK_TABLE[(r1, all_pieces & ROOK_MASKS[r1])] & (1 << r2): 
+            if ROOK_TABLE[r1][all_pieces & ROOK_MASKS[r1]] & (1 << r2): 
                 score_adj += CONNECTED_ROOKS_BONUS
         
         temp_rooks = rooks
@@ -221,16 +203,16 @@ def evaluate(state):
         # mobility & attacks
         for p_key in p_keys:
             pieces = bitboards[p_key]
+            # extract piece type by removing colour bit
+            p_type = p_key & ~WHITE
+            
             while pieces:
                 sq = (pieces & -pieces).bit_length() - 1
-                if p_key.upper() == KNIGHT: 
-                    atts = KNIGHT_ATTACKS[sq]
-                elif p_key.upper() == BISHOP: 
-                    atts = BISHOP_TABLE[(sq, all_pieces & BISHOP_MASKS[sq])]
-                elif p_key.upper() == ROOK: 
-                    atts = ROOK_TABLE[(sq, all_pieces & ROOK_MASKS[sq])]
-                else: 
-                    atts = ROOK_TABLE[(sq, all_pieces & ROOK_MASKS[sq])] | BISHOP_TABLE[(sq, all_pieces & BISHOP_MASKS[sq])]
+                
+                if p_type == KNIGHT: atts = KNIGHT_ATTACKS[sq]
+                elif p_type == BISHOP: atts = BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]]
+                elif p_type == ROOK: atts = ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]]
+                else: atts = ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] | BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] # queen
                 
                 score_adj += atts.bit_count()
                 if atts & enemy_king_zone: 

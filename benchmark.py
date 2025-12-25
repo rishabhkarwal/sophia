@@ -10,24 +10,6 @@ def log(message):
 from subprocess import Popen, PIPE
 from time import time
 
-def warmup(process, seconds):
-    print(f'Starting {seconds}s warm-up')
-    start_time = time()
-
-    move_time = seconds * 1000
-    process.stdin.write('position startpos\n')
-    process.stdin.write(f'go movetime {move_time}\n')
-    process.stdin.flush()
-    
-    while True:
-        elapsed = time() - start_time
-        remaining = seconds - elapsed
-        print(f'~{remaining:.1f}s left', end='\r', flush=True)
-        line = process.stdout.readline()
-        if line.startswith('bestmove'): break
-    
-    print('Warmup complete')
-
 def benchmark(position='startpos', time_limit=5.0, engine_path='engine.bat'):
 
     try:
@@ -52,8 +34,6 @@ def benchmark(position='startpos', time_limit=5.0, engine_path='engine.bat'):
             line = process.stdout.readline()
             if not line: break
             if line.strip() == 'uciok': break
-
-        warmup(process, 1) # 'warms-up' pypy JIT compiler to simulate how it'd be compiled in a real game
 
         if position == 'startpos': 
             process.stdin.write('position startpos\n') # gui -> engine
@@ -124,23 +104,23 @@ if __name__ == '__main__':
 Testing Position: 5B2/1P2P2P/2P1r3/2b1p3/6p1/2K2P1k/p7/nN5B w - - 0 1
 Time Limit: 60s
 
-info depth 1 currmove h7h8q score cp 1659 nodes 2657 nps 3671 time 723 hashfull 0 pv h7h8q
-info depth 2 currmove h7h8q score cp 1659 nodes 4971 nps 4524 time 1098 hashfull 0 pv h7h8q h3g3
-info depth 3 currmove h7h8q score cp 1659 nodes 7513 nps 5458 time 1376 hashfull 0 pv h7h8q h3g3 b7b8q
-info depth 4 currmove h7h8q score cp 1659 nodes 21269 nps 8371 time 2540 hashfull 0 pv h7h8q h3g3 b7b8q c5e7
-info depth 5 currmove h7h8q score cp 1584 nodes 65750 nps 12494 time 5262 hashfull 0 pv h7h8q h3g3 b7b8q a1b3 b8e5
-info depth 6 currmove h7h8q score cp 1584 nodes 120232 nps 15044 time 7991 hashfull 3 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5
-info depth 7 currmove h7h8q score cp 1584 nodes 183760 nps 19172 time 9584 hashfull 5 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5
-info depth 7 currmove h7h8q score cp 1584 nodes 183760 nps 19172 time 9584 hashfull 5 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5        
-info depth 8 currmove h7h8q score cp 1584 nodes 451473 nps 27107 time 16655 hashfull 22 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 
-info depth 9 currmove h7h8q score cp 1722 nodes 765433 nps 33195 time 23058 hashfull 30 pv h7h8q h3g3 b7b8q c5e7 f3g4 e7f8 h8f8 g3g4 f8f2
-info depth 10 currmove h7h8q score cp 1723 nodes 1380113 nps 38893 time 35484 hashfull 64 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 e5h5 h3g3
-info depth 11 currmove h7h8q score cp 1723 nodes 2282063 nps 45873 time 49747 hashfull 96 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 e5h5 h3g3 h5g4
-info nodes 2738176 nps 45617 time 60024 hashfull 114
+info depth 1 currmove h7h8q score cp 1602 nodes 2799 nps 6429 time 435 hashfull 0 pv h7h8q
+info depth 2 currmove h7h8q score cp 1602 nodes 4928 nps 7395 time 666 hashfull 0 pv h7h8q h3g3
+info depth 3 currmove h7h8q score cp 1602 nodes 7725 nps 9098 time 849 hashfull 0 pv h7h8q h3g3 b7b8q
+info depth 4 currmove h7h8q score cp 1468 nodes 32951 nps 16307 time 2020 hashfull 0 pv h7h8q h3g3 b7b8q c5d4
+info depth 5 currmove h7h8q score cp 1370 nodes 79276 nps 23547 time 3366 hashfull 1 pv h7h8q h3g3 b7b8q a1b3 b8e5
+info depth 6 currmove h7h8q score cp 1370 nodes 122005 nps 26006 time 4691 hashfull 3 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5
+info depth 7 currmove h7h8q score cp 1370 nodes 169962 nps 31406 time 5411 hashfull 4 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5
+info depth 8 currmove h7h8q score cp 1370 nodes 453702 nps 45034 time 10074 hashfull 21 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3f2
+info depth 9 currmove h7h8q score cp 1432 nodes 689625 nps 55042 time 12528 hashfull 26 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3f2 e5h2
+info depth 10 currmove h7h8q score cp 1432 nodes 1324630 nps 67096 time 19742 hashfull 63 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3f2 e5h2
+info depth 11 currmove h7h8q score cp 1481 nodes 2260805 nps 79265 time 28521 hashfull 88 pv h7h8q h3g3 b7b8q a1b3 b8e5 e6e5 h8e5 g3h3 e5h5 h3g3 h5g4
+info nodes 5279744 nps 87824 time 60116 hashfull 228
 bestmove h7h8q
 
 Best Move: h7h8q
-Time: 60.0287 seconds
-Nodes: 2,738,176
-NPS: 45,614 nodes/sec
+Time: 60.1180 seconds
+Nodes: 5,279,744
+NPS: 87,823 nodes/sec
+
 """
