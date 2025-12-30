@@ -153,7 +153,7 @@ class SearchEngine:
                     
                     # if score falls outside window, re-search
                     if score <= alpha or score >= beta:
-                        send_info_string(f'first aspiration failed - {self.first_aspiration_window}')
+                        send_info_string(f'first aspiration failed: {self.first_aspiration_window}')
                         
                         # attempt 2: larger window
                         if score <= alpha: alpha = current_score - self.second_aspiration_window
@@ -162,7 +162,7 @@ class SearchEngine:
                         best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
                         
                         if score <= alpha or score >= beta:
-                            send_info_string(f'second aspiration failed - {self.second_aspiration_window}')
+                            send_info_string(f'second aspiration failed: {self.second_aspiration_window}')
                             # attempt 3: full-window
                             if score <= alpha: alpha = -INFINITY
                             if score >= beta:  beta = INFINITY

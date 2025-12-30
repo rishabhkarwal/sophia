@@ -18,9 +18,12 @@ from engine.search.evaluation import MG_TABLE, EG_TABLE, PHASE_WEIGHTS
 def is_threefold_repetition(state: State) -> bool:
     if not state.history: return False
     current_hash = state.hash
-
+    count = 0
     for i in range(len(state.history) - 2, -1, -2):
-        if state.history[i] == current_hash: return True
+        if state.history[i] == current_hash:
+            count += 1
+            if count >= 2: # found 2 previous + 1 current = 3
+                return True
     return False
 
 def make_null_move(state: State):
