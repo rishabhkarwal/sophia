@@ -1,36 +1,46 @@
 from engine.core.constants import (
     WHITE, BLACK,
-    WHITE_PIECES, BLACK_PIECES,
-    MASK_SOURCE,
-    WK, BK, SQUARE_TO_BB
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK,
+    MASK_SOURCE, SQUARE_TO_BB,
+    WHITE_PIECES, BLACK_PIECES
 )
-from engine.core.move import SHIFT_TARGET
-from engine.board.state import State
 from engine.moves.precomputed import (
     KNIGHT_ATTACKS, KING_ATTACKS,
     ROOK_TABLE, ROOK_MASKS,
     BISHOP_TABLE, BISHOP_MASKS,
     WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
 )
+from engine.core.move import SHIFT_TARGET
+from engine.board.state import State
 from engine.board.move_exec import make_move, unmake_move
 
 def is_square_attacked(state: State, sq: int, colour: bool) -> bool:
     """Check if a square is attacked by a given colour"""
-    bitboards = state.bitboards
-    all_pieces = bitboards[WHITE] | bitboards[BLACK]
+    bitboard = state.bitboards
     
     if colour == WHITE:
-        P, N, B, R, Q, K = WHITE_PIECES
-        if BLACK_PAWN_ATTACKS[sq] & bitboards[P]: return True
+        if BLACK_PAWN_ATTACKS[sq] & bitboard[WP]: return True
+        if KNIGHT_ATTACKS[sq] & bitboard[WN]: return True
+        if KING_ATTACKS[sq] & bitboard[WK]: return True
+        
+        all_pieces = bitboard[WHITE] | bitboard[BLACK]
+        queens = bitboard[WQ]
+
+        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bitboard[WB] | queens): return True
+        if ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & (bitboard[WR] | queens): return True
+
     else:
-        P, N, B, R, Q, K = BLACK_PIECES
-        if WHITE_PAWN_ATTACKS[sq] & bitboards[P]: return True
-    
-    if KNIGHT_ATTACKS[sq] & bitboards[N]: return True
-    if KING_ATTACKS[sq] & bitboards[K]: return True
-    
-    if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bitboards[B] | bitboards[Q]): return True
-    if ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & (bitboards[R] | bitboards[Q]): return True
+        if WHITE_PAWN_ATTACKS[sq] & bitboard[BP]: return True
+        if KNIGHT_ATTACKS[sq] & bitboard[BN]: return True
+        if KING_ATTACKS[sq] & bitboard[BK]: return True
+        
+        all_pieces = bitboard[WHITE] | bitboard[BLACK]
+        queens = bitboard[BQ]
+        
+        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bitboard[BB] | queens): return True
+        if ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & (bitboard[BR] | queens): return True
+
     return False
 
 def get_attackers(state: State, sq: int, colour: bool) -> int:

@@ -1,6 +1,6 @@
 from engine.core.constants import (
     WHITE, BLACK,
-    FILE_A,
+    FILE_A, INFINITY,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
@@ -134,10 +134,25 @@ def get_mop_up_score(state, winning_colour):
 
     return mop_up if winning_colour == WHITE else -mop_up
 
-def evaluate(state):
+def evaluate(state, alpha=-INFINITY, beta=INFINITY):
     mg_phase = min(state.phase, MAX_PHASE)
     eg_phase = MAX_PHASE - mg_phase
-    evaluation = (state.mg_score * mg_phase + state.eg_score * eg_phase) // MAX_PHASE
+    
+    base_score = (state.mg_score * mg_phase + state.eg_score * eg_phase) // MAX_PHASE
+    
+    final_score = base_score if state.is_white else -base_score
+
+    # if winning by > 500 cp more than beta, positional factors won't change the result
+    LAZY_MARGIN = 500
+
+    if final_score - LAZY_MARGIN >= beta:
+        return final_score # beta cutoff (too good => other won't allow this)
+    
+    if final_score + LAZY_MARGIN <= alpha:
+        return final_score # alpha cutoff (too bad => self won't play this)
+
+    # if within the interesting window: must calculate everything (all heuristics)
+    evaluation = base_score
     
     bitboards = state.bitboards
     all_pieces = bitboards[WHITE] | bitboards[BLACK]

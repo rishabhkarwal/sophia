@@ -367,7 +367,7 @@ class SearchEngine:
             elif tt_entry.flag == FLAG_UPPERBOUND: # position is at most equal to score
                 if tt_entry.score <= alpha: return tt_entry.score
 
-        evaluation = evaluate(state)
+        evaluation = evaluate(state, alpha, beta)
         
         if evaluation >= beta: return beta
         

@@ -78,7 +78,7 @@ def generate_sliding_attacks(square: int, block: int, deltas: List[tuple]) -> in
             f += d_file
     return attacks
 
-def init_sliders(table: List[List[int]], masks_list: List[int], deltas: List[tuple]):
+def init_sliders(table: List[dict[int]], masks_list: List[int], deltas: List[tuple]):
     generated_masks = generate_sliding_masks(deltas)
     for i in range(64): 
         masks_list[i] = generated_masks[i]
