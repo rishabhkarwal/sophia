@@ -5,7 +5,7 @@ from engine.core.constants import (
 )
 from engine.core.constants import (
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MASK_SOURCE, MASK_TARGET, NULL, WHITE
+    MASK_SOURCE, MASK_TARGET, NULL, WHITE,
 )
 from engine.core.move import (
     CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
@@ -112,16 +112,9 @@ class SearchEngine:
         self.root_colour = state.is_white
         
         moves = generate_pseudo_legal_moves(state)
-        legal_moves = []
-        for move in moves:
-            undo = make_move(state, move)
-            if not is_in_check(state, not state.is_white):
-                legal_moves.append(move)
-            unmake_move(state, move, undo)
-            
-        if not legal_moves: return None
-        moves = legal_moves
         
+        if not moves: return None # stalemate / checkmate
+
         captures = []
         quiet = []
         for m in moves:
@@ -216,9 +209,17 @@ class SearchEngine:
         best_move = moves[0]
         best_value = -INFINITY * 10
         ply = 0
+        legal_moves_found = 0
         
         for i, move in enumerate(moves):
             undo_info = make_move(state, move)
+
+            if is_in_check(state, not state.is_white): # illegal move
+                unmake_move(state, move, undo_info)
+                continue
+
+            legal_moves_found += 1
+
             # root moves are already legal, no check needed here
             if i == 0:
                 value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1)
@@ -236,6 +237,8 @@ class SearchEngine:
             if value > alpha:
                 alpha = value
                 if alpha >= beta: return best_move, alpha
+
+        if legal_moves_found == 0: return best_move, -INFINITY # checkmate
         
         self.tt.store(state.hash, depth, best_value, FLAG_EXACT, best_move)
         return best_move, best_value
@@ -309,8 +312,8 @@ class SearchEngine:
             
             # LMR logic (inline checks)
             is_interesting = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
-            
             needs_full = True
+
             if depth >= 3 and i >= 3 and not is_interesting and not in_check:
                 reduction = 1
                 if i >= 10: reduction = 2

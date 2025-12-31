@@ -357,9 +357,21 @@ class SearchEngine:
 
     def _quiescence(self, state, alpha, beta, ply):
         self.nodes_searched += 1
+
+        tt_entry = self.tt.probe(state.hash)
+        
+        if tt_entry:
+            if tt_entry.flag == FLAG_EXACT: return tt_entry.score
+            elif tt_entry.flag == FLAG_LOWERBOUND: # position is at least equal to score
+                if tt_entry.score >= beta: return tt_entry.score
+            elif tt_entry.flag == FLAG_UPPERBOUND: # position is at most equal to score
+                if tt_entry.score <= alpha: return tt_entry.score
+
         evaluation = evaluate(state)
         
-        if evaluation >= beta: return beta
+        if evaluation >= beta:
+            self.tt.store(state.hash, 0, beta, FLAG_LOWERBOUND, None)
+            return beta
         
         if evaluation > alpha:
             alpha = evaluation

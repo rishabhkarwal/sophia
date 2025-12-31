@@ -107,36 +107,9 @@ if __name__ == '__main__':
 """pypy3 profiler.py sophia"""
 
 
+
 """
 Previous:
-
-info nodes 2820096 nps 28118 time 100293 hashfull 103
-
-====================================================================================================
-Total Function Calls: 221,650,801
-----------------------------------------------------------------------------------------------------
-    n-calls       tot-time   per-call   cum-time   function
-----------------------------------------------------------------------------------------------------
-    2130265        24.176     0.000      28.574    search/evaluation.py:137(evaluate)
-2130265/550317     14.137     0.000      81.354    search/search.py:355(_quiescence)
-    4420745        13.771     0.000      14.217    board/move_exec.py:49(make_move)
-    5676037        9.493      0.000      9.493     moves/legality.py:17(is_square_attacked)
-    4420739        6.391      0.000      6.522     board/move_exec.py:204(unmake_move)
-   93743893        3.055      0.000      3.055     {method 'bit_length' of 'int' objects}
-    658241         2.847      0.000      3.520     {method 'sort' of 'list' objects}
-    658232         2.737      0.000      3.112     moves/generator.py:223(_gen_queen_moves)
-    658232         2.583      0.000      3.219     moves/generator.py:61(_gen_pawn_moves)
-  689831/433       2.558      0.000     100.269    search/search.py:243(_alpha_beta)
-    658232         2.299      0.000      17.811    moves/generator.py:35(generate_pseudo_legal_moves)
-   33848139        2.247      0.000      2.247     {method 'bit_count' of 'int' objects}
-    5083353        2.212      0.000      10.647    moves/legality.py:57(is_in_check)
-    658232         1.859      0.000      2.032     moves/generator.py:206(_gen_rook_moves)
-    658232         1.648      0.000      1.924     moves/generator.py:136(_gen_knight_moves)
-----------------------------------------------------------------------------------------------------
-"""
-
-"""
-Now:
 
 info nodes 3233792 nps 32314 time 100073 hashfull 108
 
@@ -160,5 +133,33 @@ Total Function Calls: 252,288,876
     741378         2.205      0.000      17.674    moves/generator.py:35(generate_pseudo_legal_moves)
     741378         1.878      0.000      2.057     moves/generator.py:206(_gen_rook_moves)
    106492973       3.142      0.000      3.142     {method 'bit_length' of 'int' objects}
+----------------------------------------------------------------------------------------------------
+"""
+
+"""
+Now:
+
+info nodes 3581952 nps 35744 time 100210 hashfull 819
+
+====================================================================================================
+Total Function Calls: 267,956,918
+----------------------------------------------------------------------------------------------------
+    n-calls       tot-time   per-call   cum-time   function
+----------------------------------------------------------------------------------------------------
+    2228665        22.243     0.000      26.150    search/evaluation.py:137(evaluate)
+2614507/679236     15.025     0.000      81.253    search/search.py:358(_quiescence)
+    5595009        12.453     0.000      12.806    board/move_exec.py:49(make_move)
+    7190149        9.327      0.000      9.327     moves/legality.py:17(is_square_attacked)
+    5595004        6.612      0.000      6.713     board/move_exec.py:204(unmake_move)
+    3581997        3.108      0.000      3.254     search/transposition.py:45(probe)
+    817269         2.915      0.000      3.576     {method 'sort' of 'list' objects}
+   103911296       2.863      0.000      2.863     {method 'bit_length' of 'int' objects}
+  967445/462       2.644      0.000     100.189    search/search.py:246(_alpha_beta)
+    817260         2.593      0.000      2.930     moves/generator.py:223(_gen_queen_moves)
+    817260         2.572      0.000      3.077     moves/generator.py:61(_gen_pawn_moves)
+    817260         2.101      0.000      16.645    moves/generator.py:35(generate_pseudo_legal_moves)
+   35809438        1.915      0.000      1.915     {method 'bit_count' of 'int' objects}
+    817260         1.731      0.000      1.894     moves/generator.py:206(_gen_rook_moves)
+    6418738        1.631      0.000      9.999     moves/legality.py:57(is_in_check)
 ----------------------------------------------------------------------------------------------------
 """
