@@ -92,6 +92,7 @@ def run(position, time_sec, engine_name):
     elapsed = t_end - t_start
     nodes = uci.engine.nodes_searched
     nps = int(nodes / elapsed) if elapsed > 0 else 0
+    depth = uci.engine.depth_reached
 
     if isinstance(best_move, int):
         move_str = move_to_uci(best_move)
@@ -104,6 +105,7 @@ def run(position, time_sec, engine_name):
     print(f'Nodes: {nodes:,}')
     print(f'NPS:   {nps:,}')
     print(f'Time:  {elapsed:.2f}s')
+    print(f'Depth: {depth}')
     print(f'Move:  {move_str}')
 
     pretty_print(profiler)
@@ -121,36 +123,67 @@ if __name__ == '__main__':
 """pypy3 profiler.py sophia"""
 
 """
-Engine: Previous
+Engine: Indigo
 
-Nodes: 4,080,337
-NPS:   44,878
-Time:  90.92s
+Nodes: 1,691,648
+NPS:   16,678
+Time:  101.42s
+Depth: 7
 Move:  e2a6
 
 ====================================================================================================
-Total Function Calls: 254,945,476
+Total Function Calls: 190,602,353
 ----------------------------------------------------------------------------------------------------
     n-calls       tot-time   per-call   cum-time   function
 ----------------------------------------------------------------------------------------------------
-    6069854        21.094     0.000      21.818    board/move_exec.py:52(make_move)
-    2975706        15.052     0.000      17.906    search/evaluation.py:137(evaluate)
-    6069854        8.001      0.000      8.228     board/move_exec.py:216(unmake_move)
-    7800526        6.551      0.000      6.551     moves/legality.py:18(is_square_attacked)
-2986393/892849     4.082      0.000      67.472    search/search.py:358(_quiescence)
-  1093944/480      3.824      0.000      90.897    search/search.py:246(_alpha_beta)
-    883715         3.502      0.000      4.320     {method 'sort' of 'list' objects}
-    883706         3.267      0.000      3.574     moves/generator.py:206(_gen_rook_moves)
-    883706         3.107      0.000      3.758     moves/generator.py:61(_gen_pawn_moves)
-    883706         2.625      0.000      20.554    moves/generator.py:35(generate_pseudo_legal_moves)
-   82367626        2.402      0.000      2.402     {method 'bit_length' of 'int' objects}
-    883706         2.186      0.000      2.430     moves/generator.py:189(_gen_bishop_moves)
-    883706         1.943      0.000      2.172     moves/generator.py:223(_gen_queen_moves)
-    883706         1.829      0.000      2.153     moves/generator.py:136(_gen_knight_moves)
-    883706         1.745      0.000      1.969     moves/generator.py:152(_gen_king_moves)
+    3199274        19.369     0.000      20.146    board/move_exec.py:47(make_move)
+    1329557        18.210     0.000      21.485    search/evaluation.py:268(evaluate)
+    5136675        9.398      0.000      9.398     moves/legality.py:12(is_square_attacked)
+    3199270        8.899      0.000      9.063     board/move_exec.py:216(unmake_move)
+1445872/165887     6.977      0.000      85.166    search/search.py:315(_quiescence)
+    554260         3.983      0.000      8.719     {method 'sort' of 'list' objects}
+    2646273        3.543      0.000      3.673     search/ordering.py:29(_get_mvv_lva_score)
+    554251         3.483      0.000      3.787     moves/generator.py:205(_gen_rook_moves)
+  245776/398       3.309      0.000     101.401    search/search.py:203(_alpha_beta)
+    554251         2.768      0.000      3.428     moves/generator.py:62(_gen_pawn_moves)
+    554251         2.664      0.000      19.360    moves/generator.py:35(generate_pseudo_legal_moves)
+   61743955        2.292      0.000      2.292     {method 'bit_length' of 'int' objects}
+    554251         1.889      0.000      2.103     moves/generator.py:222(_gen_queen_moves)
+    554251         1.865      0.000      2.072     moves/generator.py:188(_gen_bishop_moves)
+    554251         1.767      0.000      1.972     moves/generator.py:151(_gen_king_moves)
 ----------------------------------------------------------------------------------------------------
 """
 
 """
+====================================================================================================
 
+Engine: Sophia
+
+Nodes: 4,595,712
+NPS:   45,707
+Time:  100.55s
+Depth: 8
+Move:  e2a6
+
+====================================================================================================
+Total Function Calls: 240,745,127
+----------------------------------------------------------------------------------------------------
+    n-calls       tot-time   per-call   cum-time   function
+----------------------------------------------------------------------------------------------------
+    3806128        30.287     0.000      36.369    search/evaluation.py:137(evaluate)
+    3954690        19.821     0.000      20.573    board/move_exec.py:57(make_move)
+3830156/633091     7.147      0.000      86.889    search/search.py:373(_quiescence)
+    3954690        6.939      0.000      7.163     board/move_exec.py:221(unmake_move)
+   106097618       3.489      0.000      3.489     {method 'bit_length' of 'int' objects}
+   45741113        3.232      0.000      3.232     {method 'bit_count' of 'int' objects}
+    595727         2.898      0.000      17.937    moves/generator.py:35(generate_pseudo_legal_moves)
+    595727         2.850      0.000      3.134     moves/generator.py:206(_gen_rook_moves)
+    595727         2.753      0.000      3.369     moves/generator.py:61(_gen_pawn_moves)
+  765556/437       2.473      0.000     100.447    search/search.py:255(_alpha_beta)
+    621663         2.444      0.000      2.444     moves/legality.py:18(is_square_attacked)
+    595736         2.247      0.000      2.602     {method 'sort' of 'list' objects}
+    595727         1.944      0.000      2.150     moves/generator.py:223(_gen_queen_moves)
+    595727         1.733      0.000      1.890     moves/generator.py:189(_gen_bishop_moves)
+    595727         1.621      0.000      1.895     moves/generator.py:136(_gen_knight_moves)
+----------------------------------------------------------------------------------------------------
 """

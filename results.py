@@ -124,65 +124,48 @@ if __name__ == '__main__':
 
 """
 ------------------------------------------------------------
-TimeControl: 180+1 (Games: 20)
+TimeControl: 180+1 (Games: 15)
 ------------------------------------------------------------
-indigo       :  12.0 pts  (W:8 D:8 L:4)
-    Wins   : [Checkmate:8]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Checkmate:4]
+indigo       :  10.5 pts  (W:6 D:9 L:0)
+    Wins   : [Checkmate:6]
+    Draws  : [Fivefold Repetition:9]
 
-sophia       :   8.0 pts  (W:4 D:8 L:8)
-    Wins   : [Checkmate:4]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Checkmate:8]
+sophia       :   4.5 pts  (W:0 D:9 L:6)
+    Draws  : [Fivefold Repetition:9]
+    Losses : [Checkmate:6]
 
 >> Winner: indigo
 
 
 ------------------------------------------------------------
-TimeControl: 60+0 (Games: 20)
+TimeControl: 60+0 (Games: 25)
 ------------------------------------------------------------
-sophia       :  13.0 pts  (W:9 D:8 L:3)
-    Wins   : [Time Forfeit:7, Checkmate:2]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Checkmate:3]
+indigo       :  13.5 pts  (W:9 D:9 L:7)
+    Wins   : [Checkmate:8, Time Forfeit:1]
+    Draws  : [Fivefold Repetition:9]
+    Losses : [Time Forfeit:5, Checkmate:2]
 
-indigo       :   7.0 pts  (W:3 D:8 L:9)
-    Wins   : [Checkmate:3]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Time Forfeit:7, Checkmate:2]
-
->> Winner: sophia
-
-
-------------------------------------------------------------
-TimeControl: 600+5 (Games: 20)
-------------------------------------------------------------
-indigo       :  12.0 pts  (W:8 D:8 L:4)
-    Wins   : [Checkmate:8]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Checkmate:2, Time Forfeit:2]
-
-sophia       :   8.0 pts  (W:4 D:8 L:8)
-    Wins   : [Checkmate:2, Time Forfeit:2]
-    Draws  : [Fivefold Repetition:8]
-    Losses : [Checkmate:8]
+sophia       :  11.5 pts  (W:7 D:9 L:9)
+    Wins   : [Time Forfeit:5, Checkmate:2]
+    Draws  : [Fivefold Repetition:9]
+    Losses : [Checkmate:8, Time Forfeit:1]
 
 >> Winner: indigo
 
 
 ------------------------------------------------------------
-TimeControl: Overall (Games: 60)
+TimeControl: Overall (Games: 40)
 ------------------------------------------------------------
-indigo       :  31.0 pts  (W:19 D:24 L:17)
-    Wins   : [Checkmate:19]
-    Draws  : [Fivefold Repetition:24]
-    Losses : [Time Forfeit:9, Checkmate:8]
+indigo       :  24.0 pts  (W:15 D:18 L:7)
+    Wins   : [Checkmate:14, Time Forfeit:1]
+    Draws  : [Fivefold Repetition:18]
+    Losses : [Time Forfeit:5, Checkmate:2]
 
-sophia       :  29.0 pts  (W:17 D:24 L:19)
-    Wins   : [Time Forfeit:9, Checkmate:8]
-    Draws  : [Fivefold Repetition:24]
-    Losses : [Checkmate:19]
+sophia       :  16.0 pts  (W:7 D:18 L:15)
+    Wins   : [Time Forfeit:5, Checkmate:2]
+    Draws  : [Fivefold Repetition:18]
+    Losses : [Checkmate:14, Time Forfeit:1]
 
 >> Winner: indigo
+
 """

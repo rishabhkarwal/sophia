@@ -15,16 +15,21 @@ from engine.core.constants import (
 from engine.core.zobrist import ZOBRIST_KEYS
 from engine.search.evaluation import MG_TABLE, EG_TABLE, PHASE_WEIGHTS
 
-def is_threefold_repetition(state: State) -> bool:
-    if not state.history: return False
+
+def is_repetition(state: State):
+    if not state.history: return False, False
     current_hash = state.hash
     count = 0
+    threefold, fivefold = False, False
     for i in range(len(state.history) - 2, -1, -2):
         if state.history[i] == current_hash:
             count += 1
             if count >= 2: # found 2 previous + 1 current = 3
-                return True
-    return False
+                threefold = True
+            if count >= 4: # found 4 previous + 1 current = 5
+                fivefold = True
+                break
+    return threefold, fivefold
 
 def make_null_move(state: State):
     old_ep = state.en_passant_square

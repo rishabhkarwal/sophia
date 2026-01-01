@@ -21,6 +21,7 @@ class SearchEngine:
         self.start_time = 0.0
         self.root_colour = WHITE
         self.aspiration_window = 40
+        self.depth_reached = 0
     
     def _get_pv_line(self, state, max_depth=20):
         """Retrieves the principal variation line from the TT by walking the best moves found so far"""
@@ -83,6 +84,7 @@ class SearchEngine:
         self.nodes_searched = 0
         self.start_time = time.time()
         self.root_colour = state.player
+        self.depth_reached = 0
         
         moves = generate_pseudo_legal_moves(state)
         legal_moves = []
@@ -136,6 +138,8 @@ class SearchEngine:
 
                 hashfull = self.tt.get_hashfull()
                 pv_string = self._get_pv_line(state, current_depth)
+
+                self.depth_reached = current_depth
 
                 send_command(f"info depth {current_depth} currmove {move_to_uci(best_move_so_far)} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull} pv {pv_string}")
 

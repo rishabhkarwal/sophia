@@ -39,7 +39,7 @@ class MoveOrdering:
         victim = state.board[target]
         
         if victim == NULL: 
-            if move & EP_FLAG: victim_val = self.TYPE_VALUES[PAWN]
+            if (move & EP_FLAG) == EP_FLAG: victim_val = self.TYPE_VALUES[PAWN]
             else: victim_val = 0
         else:
             # extract piece type by removing colour bit

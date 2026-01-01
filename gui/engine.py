@@ -65,6 +65,8 @@ class Wrapper:
             try:
                 line = self.process.stdout.readline()
                 if not line: return False
+                line = line.strip()
+                log_engine(self.name, line, self.colour)
                 if target_text in line: return True
             except OSError:
                 return False

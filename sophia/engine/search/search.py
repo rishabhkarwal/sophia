@@ -1,11 +1,9 @@
 import time
 from engine.core.constants import (
     WHITE, BLACK, MATE, INFINITY,
-    MAX_DEPTH, TIME_CHECK_NODES
-)
-from engine.core.constants import (
+    MAX_DEPTH, TIME_CHECK_NODES,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MASK_SOURCE, MASK_TARGET, NULL, WHITE,
+    MASK_SOURCE, MASK_TARGET, NULL,
 )
 from engine.core.move import (
     CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
@@ -15,7 +13,7 @@ from engine.moves.generator import generate_pseudo_legal_moves
 from engine.board.move_exec import (
     make_move, unmake_move,
     make_null_move, unmake_null_move,
-    is_threefold_repetition
+    is_repetition
 )
 from engine.moves.legality import is_in_check
 from engine.search.transposition import (
@@ -116,18 +114,26 @@ class SearchEngine:
         
         self.stopped = False
         self.depth_reached = 0
-        
+
+        # root must be legal
+
         moves = generate_pseudo_legal_moves(state)
+        legal_moves = []
+        for move in moves:
+            make_move(state, move)
+            if not is_in_check(state, not state.is_white):
+                legal_moves.append(move)
+            unmake_move(state, move)
         
-        if not moves: return None # stalemate / checkmate
+        if not legal_moves: return None
+
+        moves = legal_moves
 
         captures = []
         quiet = []
         for m in moves:
-            if (m & CAPTURE_FLAG) or (m & PROMO_FLAG):
-                captures.append(m)
-            else:
-                quiet.append(m)
+            if (m & CAPTURE_FLAG) or (m & PROMO_FLAG): captures.append(m)
+            else: quiet.append(m)
         moves = captures + quiet
         
         best_move_so_far = moves[0]
@@ -215,16 +221,9 @@ class SearchEngine:
         best_move = moves[0]
         best_value = -INFINITY * 10
         ply = 0
-        legal_moves_found = 0
         
         for i, move in enumerate(moves):
             make_move(state, move)
-
-            if is_in_check(state, not state.is_white): # illegal move
-                unmake_move(state, move)
-                continue
-
-            legal_moves_found += 1
 
             # root moves are already legal, no check needed here
             if i == 0:
@@ -234,10 +233,9 @@ class SearchEngine:
                 if alpha < value < beta:
                     value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1)
             
-            # --- FIX: Check for stop flag immediately after return ---
             if self.stopped:
                 unmake_move(state, move)
-                return best_move, -INFINITY # Return dummy value
+                return best_move, -INFINITY
             
             unmake_move(state, move)
             
@@ -249,8 +247,6 @@ class SearchEngine:
                 alpha = value
                 if alpha >= beta: return best_move, alpha
 
-        if legal_moves_found == 0: return best_move, -INFINITY # checkmate
-        
         if not self.stopped:
             self.tt.store(state.hash, depth, best_value, FLAG_EXACT, best_move)
             
@@ -260,13 +256,18 @@ class SearchEngine:
         if self.stopped: return 0
 
         self.nodes_searched += 1
-        if (self.nodes_searched & TIME_CHECK_NODES) == 0:
 
+        if (self.nodes_searched & TIME_CHECK_NODES) == 0:
             if time.time() - self.start_time > self.time_limit / 1000.0: 
                 self.stopped = True
                 return 0
         
-        if is_threefold_repetition(state): return 0
+        is_threefold, is_fivefold = is_repetition(state)
+        if is_threefold:
+            if alpha >= 100: return -50  # winning -> draw is bad
+            elif alpha < -100: return 0  # losing -> draw is good
+            return -20 # equal -> rather not draw
+        if is_fivefold: return 0
         # 50-move rule (draw)
         if state.halfmove_clock >= 100: return 0
 
@@ -301,33 +302,22 @@ class SearchEngine:
             val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, allow_null=False)
             unmake_null_move(state)
             
-            if self.stopped: return 0 # Return immediately if stopped inside recursion
+            if self.stopped: return 0 # return immediately if stopped inside recursion
             if val >= beta: return beta
 
-        moves = generate_pseudo_legal_moves(state)
-        
         tt_move = tt_entry.best_move if tt_entry else None
-        k1 = self.ordering.killer_moves[depth][0]
-        k2 = self.ordering.killer_moves[depth][1]
-
-        moves.sort(key=lambda m: self.ordering.get_move_score(m, tt_move, state, depth, k1, k2), reverse=True)
         
         best_value = -INFINITY * 10
         best_move = None
-        original_alpha = alpha
-        legal_moves_count = 0
         
-        for i, move in enumerate(moves):
+        for i, move in enumerate(self._move_generator(state, tt_move, depth)):
             make_move(state, move)
             
-            # check legality AFTER making the move
-            if is_in_check(state, not state.is_white):
-                unmake_move(state, move)
-                continue
+            # optimisation: no legality check here
+            # assume the move is legal; if it captures the king,
+            # the recursive call will return bad score
             
-            legal_moves_count += 1
-            
-            # LMR logic (inline checks)
+            # LMR Logic
             is_interesting = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
             needs_full = True
 
@@ -366,12 +356,14 @@ class SearchEngine:
                 
             if value > alpha: alpha = value
 
-        if legal_moves_count == 0:
-            if in_check: return -INFINITY + ply
-            return 0
+        # if best_value is still -INFINITY * 10 (no moves generated) 
+        # OR extremely negative (all moves were illegal/king captured)
+        if best_value <= -INFINITY + 2000:
+            if in_check: return -INFINITY + ply # checkmate
+            return 0 # stalemate
 
         flag = FLAG_EXACT
-        if best_value <= original_alpha: flag = FLAG_UPPERBOUND
+        if best_value <= alpha: flag = FLAG_UPPERBOUND
         
         if not self.stopped:
             self.tt.store(state.hash, depth, best_value, flag, best_move)
@@ -380,6 +372,7 @@ class SearchEngine:
 
     def _quiescence(self, state, alpha, beta, ply):
         self.nodes_searched += 1
+        if self.stopped: return 0
 
         tt_entry = self.tt.probe(state.hash)
         
@@ -418,9 +411,7 @@ class SearchEngine:
         for _, move in scored_moves:
             make_move(state, move)
             
-            if is_in_check(state, not state.is_white):
-                unmake_move(state, move)
-                continue
+            # optimisation: no legality check here
             
             score = -self._quiescence(state, -beta, -alpha, ply + 1)
             unmake_move(state, move)
@@ -429,3 +420,40 @@ class SearchEngine:
             if score > alpha: alpha = score
         
         return alpha
+
+    def _move_generator(self, state, tt_move, depth):
+        """
+        yields moves in stages
+         tt move
+         good captures (MVV-LVA)
+         killer moves
+         remaining moves (quiet)
+        """
+        if tt_move: yield tt_move
+
+        captures = generate_pseudo_legal_moves(state, captures_only=True)
+        
+        captures.sort(key=lambda m: self.ordering.get_move_score(m, None, state, 0, None, None), reverse=True)
+        
+        for move in captures:
+            if move == tt_move: continue
+            yield move
+
+        all_moves = generate_pseudo_legal_moves(state, captures_only=False) # maybe add a quiet only flag
+ 
+        k1 = self.ordering.killer_moves[depth][0]
+        k2 = self.ordering.killer_moves[depth][1]
+        
+        quiet_moves = []
+        for move in all_moves:
+            if move == tt_move: continue
+
+            is_capture = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
+            if is_capture: continue
+            
+            quiet_moves.append(move)
+
+        quiet_moves.sort(key=lambda m: self.ordering.get_move_score(m, None, state, depth, k1, k2), reverse=True)
+
+        for move in quiet_moves:
+            yield move
