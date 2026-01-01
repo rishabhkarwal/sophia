@@ -68,8 +68,36 @@ def is_in_check(state: State, colour: bool) -> bool:
     king_key = WK if colour == WHITE else BK
     king_bb = state.bitboards[king_key]
     if not king_bb: return False
+    
     king_sq = (king_bb & -king_bb).bit_length() - 1
-    return is_square_attacked(state, king_sq, not colour)
+    
+    opponent = not colour
+    bitboard = state.bitboards
+    
+    if opponent == WHITE:
+        # white attacks
+        if BLACK_PAWN_ATTACKS[king_sq] & bitboard[WP]: return True
+        if KNIGHT_ATTACKS[king_sq] & bitboard[WN]: return True
+        if KING_ATTACKS[king_sq] & bitboard[WK]: return True
+        
+        all_pieces = bitboard[WHITE] | bitboard[BLACK]
+        queens = bitboard[WQ]
+        
+        if BISHOP_TABLE[king_sq][all_pieces & BISHOP_MASKS[king_sq]] & (bitboard[WB] | queens): return True
+        if ROOK_TABLE[king_sq][all_pieces & ROOK_MASKS[king_sq]] & (bitboard[WR] | queens): return True
+    else:
+        # black attacks
+        if WHITE_PAWN_ATTACKS[king_sq] & bitboard[BP]: return True
+        if KNIGHT_ATTACKS[king_sq] & bitboard[BN]: return True
+        if KING_ATTACKS[king_sq] & bitboard[BK]: return True
+        
+        all_pieces = bitboard[WHITE] | bitboard[BLACK]
+        queens = bitboard[BQ]
+        
+        if BISHOP_TABLE[king_sq][all_pieces & BISHOP_MASKS[king_sq]] & (bitboard[BB] | queens): return True
+        if ROOK_TABLE[king_sq][all_pieces & ROOK_MASKS[king_sq]] & (bitboard[BR] | queens): return True
+    
+    return False
 
 def is_legal(state: State, move: int) -> bool:
     start_sq = move & MASK_SOURCE

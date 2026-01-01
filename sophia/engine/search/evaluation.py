@@ -134,33 +134,12 @@ def get_mop_up_score(state, winning_colour):
 
     return mop_up if winning_colour == WHITE else -mop_up
 
-def evaluate(state, alpha=-INFINITY, beta=INFINITY):
-    # by trying a move and evaluating it as +- MATE it should hopefully automaticallty be filtered out through pruning
-    if not state.bitboards[WK]: 
-        return -INFINITY if state.is_white else INFINITY
-    if not state.bitboards[BK]:
-        return INFINITY if state.is_white else -INFINITY
-
+def evaluate(state):
     mg_phase = min(state.phase, MAX_PHASE)
     eg_phase = MAX_PHASE - mg_phase
     
     base_score = (state.mg_score * mg_phase + state.eg_score * eg_phase) // MAX_PHASE
     
-    """
-    final_score = base_score if state.is_white else -base_score
-
-    
-    # if winning by > ~1000 cp more than beta, positional factors won't change the result
-    LAZY_MARGIN = PIECE_VALUES[QUEEN] + 100
-
-    if final_score - LAZY_MARGIN >= beta:
-        return final_score # beta cutoff (too good => other won't allow this)
-    
-    if final_score + LAZY_MARGIN <= alpha:
-        return final_score # alpha cutoff (too bad => self won't play this)
-
-    # if within the interesting window: must calculate everything (all heuristics)
-    """
     evaluation = base_score
     
     bitboards = state.bitboards

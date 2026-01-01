@@ -1,9 +1,9 @@
 import time
 from engine.core.constants import (
-    WHITE, BLACK, MATE, INFINITY,
+    WHITE, BLACK, INFINITY,
     MAX_DEPTH, TIME_CHECK_NODES,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MASK_SOURCE, MASK_TARGET, NULL,
+    MASK_SOURCE, NULL, PIECE_VALUES
 )
 from engine.core.move import (
     CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
@@ -24,16 +24,6 @@ from engine.search.evaluation import evaluate
 from engine.search.ordering import MoveOrdering
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
-
-# pruning values for delta pruning
-PIECE_VALUES = {
-    PAWN >> 1: 100,
-    KNIGHT >> 1: 320,
-    BISHOP >> 1: 330,
-    ROOK >> 1: 500,
-    QUEEN >> 1: 900,
-    KING >> 1: 20000
-}
 
 class SearchEngine:
     def __init__(self, time_limit=2000, tt_size_mb=64):
@@ -129,6 +119,7 @@ class SearchEngine:
 
         moves = legal_moves
 
+        # simple move ordering - captures first
         captures = []
         quiet = []
         for m in moves:
@@ -295,6 +286,14 @@ class SearchEngine:
 
         in_check = is_in_check(state, state.is_white)
 
+        # reverse futility pruning (static null move pruning)
+        if not in_check and depth <= 3 and allow_null:
+            static_eval = evaluate(state)
+            # reverse futility margin
+            rfp_margin = 120 * depth
+            if static_eval - rfp_margin >= beta:
+                return static_eval - rfp_margin
+
         if allow_null and depth >= 3 and not in_check:
             make_null_move(state)
 
@@ -302,20 +301,31 @@ class SearchEngine:
             val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, allow_null=False)
             unmake_null_move(state)
             
-            if self.stopped: return 0 # return immediately if stopped inside recursion
+            if self.stopped: return 0
             if val >= beta: return beta
 
+        moves = generate_pseudo_legal_moves(state)
+
+        # removed generator - might change back
         tt_move = tt_entry.best_move if tt_entry else None
+        k1 = self.ordering.killer_moves[depth][0]
+        k2 = self.ordering.killer_moves[depth][1]
+        
+        moves.sort(key=lambda m: self.ordering.get_move_score(m, tt_move, state, depth, k1, k2), reverse=True)
         
         best_value = -INFINITY * 10
         best_move = None
+        legal_moves_count = 0
         
-        for i, move in enumerate(self._move_generator(state, tt_move, depth)):
+        for i, move in enumerate(moves):
             make_move(state, move)
             
-            # optimisation: no legality check here
-            # assume the move is legal; if it captures the king,
-            # the recursive call will return bad score
+            # no legality check caused TT pollution; so removed
+            if is_in_check(state, not state.is_white):
+                unmake_move(state, move)
+                continue
+            
+            legal_moves_count += 1
             
             # LMR Logic
             is_interesting = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
@@ -356,11 +366,9 @@ class SearchEngine:
                 
             if value > alpha: alpha = value
 
-        # if best_value is still -INFINITY * 10 (no moves generated) 
-        # OR extremely negative (all moves were illegal/king captured)
-        if best_value <= -INFINITY + 2000:
-            if in_check: return -INFINITY + ply # checkmate
-            return 0 # stalemate
+        if legal_moves_count == 0:
+            if in_check: return -INFINITY + ply
+            return 0
 
         flag = FLAG_EXACT
         if best_value <= alpha: flag = FLAG_UPPERBOUND
@@ -378,19 +386,25 @@ class SearchEngine:
         
         if tt_entry:
             if tt_entry.flag == FLAG_EXACT: return tt_entry.score
-            elif tt_entry.flag == FLAG_LOWERBOUND: # position is at least equal to score
+            elif tt_entry.flag == FLAG_LOWERBOUND:
                 if tt_entry.score >= beta: return tt_entry.score
-            elif tt_entry.flag == FLAG_UPPERBOUND: # position is at most equal to score
+            elif tt_entry.flag == FLAG_UPPERBOUND:
                 if tt_entry.score <= alpha: return tt_entry.score
 
-        evaluation = evaluate(state, alpha, beta)
-        
-        if evaluation >= beta: return beta
-        
-        if evaluation > alpha:
-            alpha = evaluation
-            
         in_check = is_in_check(state, state.is_white)
+        
+        if not in_check:
+            evaluation = evaluate(state)
+            
+            if evaluation >= beta: return beta
+            
+            # delta pruning
+            delta = PIECE_VALUES[QUEEN] + PIECE_VALUES[PAWN]  # queen value + pawn margin
+            if evaluation < alpha - delta:
+                return alpha
+            
+            if evaluation > alpha:
+                alpha = evaluation
         
         if in_check:
             moves = generate_pseudo_legal_moves(state, captures_only=False)
@@ -398,8 +412,6 @@ class SearchEngine:
             moves = generate_pseudo_legal_moves(state, captures_only=True)
             
         scored_moves = []
-        tt_move = None
-
         for m in moves:
             score = 0
             if (m & CAPTURE_FLAG):
@@ -408,10 +420,34 @@ class SearchEngine:
             
         scored_moves.sort(key=lambda x: x[0], reverse=True)
         
+        legal_moves_found = False
+        
         for _, move in scored_moves:
+            # SEE pruning for obviously bad captures in quiescence search
+            if not in_check and (move & CAPTURE_FLAG):
+                # skip captures that are likely losing
+                from_sq = move & MASK_SOURCE
+                to_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
+                attacker = state.board[from_sq]
+                victim = state.board[to_sq]
+                
+                if victim != NULL:
+                    attacker_val = PIECE_VALUES.get((attacker & ~WHITE), 100)
+                    victim_val = PIECE_VALUES.get((victim & ~WHITE), 100)
+                    
+                    # skip if we're capturing a lower value piece with a higher value piece
+                    # TODO: check if the piece is defended
+                    if attacker_val > victim_val + 1.5 * PIECE_VALUES[PAWN]:
+                        continue
+            
             make_move(state, move)
             
-            # optimisation: no legality check here
+            # brought legality back
+            if is_in_check(state, not state.is_white):
+                unmake_move(state, move)
+                continue
+            
+            legal_moves_found = True
             
             score = -self._quiescence(state, -beta, -alpha, ply + 1)
             unmake_move(state, move)
@@ -419,41 +455,7 @@ class SearchEngine:
             if score >= beta: return beta
             if score > alpha: alpha = score
         
+        if in_check and not legal_moves_found:
+             return -INFINITY + ply
+
         return alpha
-
-    def _move_generator(self, state, tt_move, depth):
-        """
-        yields moves in stages
-         tt move
-         good captures (MVV-LVA)
-         killer moves
-         remaining moves (quiet)
-        """
-        if tt_move: yield tt_move
-
-        captures = generate_pseudo_legal_moves(state, captures_only=True)
-        
-        captures.sort(key=lambda m: self.ordering.get_move_score(m, None, state, 0, None, None), reverse=True)
-        
-        for move in captures:
-            if move == tt_move: continue
-            yield move
-
-        all_moves = generate_pseudo_legal_moves(state, captures_only=False) # maybe add a quiet only flag
- 
-        k1 = self.ordering.killer_moves[depth][0]
-        k2 = self.ordering.killer_moves[depth][1]
-        
-        quiet_moves = []
-        for move in all_moves:
-            if move == tt_move: continue
-
-            is_capture = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
-            if is_capture: continue
-            
-            quiet_moves.append(move)
-
-        quiet_moves.sort(key=lambda m: self.ordering.get_move_score(m, None, state, depth, k1, k2), reverse=True)
-
-        for move in quiet_moves:
-            yield move

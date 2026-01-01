@@ -33,6 +33,7 @@ def get_legal_moves(state: State, captures_only=False) -> List[int]:
     return [move for move in pseudo_legal if is_legal(state, move)]
 
 def generate_pseudo_legal_moves(state: State, captures_only=False) -> List[int]:
+    """Generate all pseudo-legal moves"""
     moves: List[int] = []
     bitboards = state.bitboards
     all_pieces = bitboards[WHITE] | bitboards[BLACK]
@@ -73,23 +74,23 @@ def _gen_pawn_moves(state: State, moves: List[int], pawn_key: int, colour: bool,
         single_push = (pawns >> NORTH) & ~all_pieces
         double_push = ((single_push & start_rank_mask) >> NORTH) & ~all_pieces
     
-    # single pushes
-    bb = single_push
-    while bb:
-        lsb = bb & -bb
-        to_sq = lsb.bit_length() - 1
-        bb &= bb - 1
-        
-        from_sq = to_sq - direction
-        is_promo = (colour == WHITE and to_sq >= promotion_rank) or (colour == BLACK and to_sq <= promotion_rank)
-        
-        if is_promo: 
-            _add_promotions(moves, from_sq, to_sq, False)
-        elif not captures_only: 
-            moves.append(_pack(from_sq, to_sq, QUIET))
-            
-    # double pushes
     if not captures_only:
+        # single pushes
+        bb = single_push
+        while bb:
+            lsb = bb & -bb
+            to_sq = lsb.bit_length() - 1
+            bb &= bb - 1
+            
+            from_sq = to_sq - direction
+            is_promo = (colour == WHITE and to_sq >= promotion_rank) or (colour == BLACK and to_sq <= promotion_rank)
+            
+            if is_promo: 
+                _add_promotions(moves, from_sq, to_sq, False)
+            else:
+                moves.append(_pack(from_sq, to_sq, QUIET))
+                
+        # double pushes
         bb = double_push
         while bb:
             lsb = bb & -bb
