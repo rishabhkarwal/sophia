@@ -106,8 +106,6 @@ class SyzygyHandler:
 
     def probe_wdl(self, state):
         if not self.tablebase: return None
-        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
-        if all_pieces.bit_count() > 5: return None
         try:
             board = state_to_board(state)
             return self.tablebase.probe_wdl(board)
@@ -115,8 +113,6 @@ class SyzygyHandler:
 
     def probe_dtz(self, state):
         if not self.tablebase: return None
-        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
-        if all_pieces.bit_count() > 5: return None
         try:
             board = state_to_board(state)
             return self.tablebase.probe_dtz(board)

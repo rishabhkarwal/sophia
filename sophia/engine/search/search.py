@@ -20,8 +20,9 @@ from engine.search.transposition import (
     TranspositionTable,
     FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
 )
-from engine.search.evaluation import evaluate
-from engine.search.ordering import MoveOrdering
+from engine.search.evaluation import evaluate, PawnHashTable
+from engine.search.ordering import MoveOrdering, pick_next_move
+from engine.search.see import see_fast  # SEE for pruning
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
 
@@ -29,19 +30,27 @@ class SearchEngine:
     def __init__(self, time_limit=2000, tt_size_mb=64):
         self.time_limit = time_limit
         self.tt = TranspositionTable(tt_size_mb)
+        self.pawn_hash = PawnHashTable(32)
         self.syzygy = SyzygyHandler()
         self.ordering = MoveOrdering()
         self.nodes_searched = 0
         self.depth_reached = 0
         self.start_time = 0.0
         self.root_colour = WHITE
-        self.first_aspiration_window = 35
-        self.second_aspiration_window = 150
+        
+        # dynamic aspiration windows
+        self.aspiration_min = 35  # minimum window size
+        self.aspiration_max = 135   # maximum window size
+        self.aspiration_current = (self.aspiration_min + self.aspiration_max) // 4  # current window size
+        self.aspiration_stability_count = 0  # tracks stable searches
+        
+        # time management for opponent pressure
+        self.opponent_time_ms = 999999
         
         self.stopped = False
     
     def _get_pv_line(self, state, max_depth=20):
-        """Retrieves the principal variation line from the TT by walking the best moves found so far"""
+        """Retrieves the principal variation line from the TT"""
         pv_moves = []
         undo_stack = []
         seen_hashes = {state.hash}
@@ -79,7 +88,7 @@ class SearchEngine:
             score_str = f"cp {int(score)}"
         return score_str
 
-    def get_best_move(self, state):
+    def get_best_move(self, state, opp_time_ms=999999):
         # syzygy root probe
         syzygy_result = self.syzygy.get_best_move(state)
         if syzygy_result:
@@ -97,6 +106,8 @@ class SearchEngine:
             self.tt.store(state.hash, MAX_DEPTH, score, FLAG_EXACT, None)
 
             return syzygy_move
+        
+        self.opponent_time_ms = opp_time_ms
 
         self.nodes_searched = 0
         self.start_time = time.time()
@@ -104,9 +115,12 @@ class SearchEngine:
         
         self.stopped = False
         self.depth_reached = 0
+        
+        # reset aspiration windows
+        self.aspiration_current = (self.aspiration_min + self.aspiration_max) // 4
+        self.aspiration_stability_count = 0
 
-        # root must be legal
-
+        # generate legal root moves
         moves = generate_pseudo_legal_moves(state)
         legal_moves = []
         for move in moves:
@@ -119,7 +133,7 @@ class SearchEngine:
 
         moves = legal_moves
 
-        # simple move ordering - captures first
+        # simple move ordering at root => captures first
         captures = []
         quiet = []
         for m in moves:
@@ -140,34 +154,46 @@ class SearchEngine:
             beta = INFINITY
             
             if current_depth > 1:
-                # attempt 1: small window
-                alpha = current_score - self.first_aspiration_window
-                beta = current_score + self.first_aspiration_window
+                # dynamic aspiration windows
+                alpha = current_score - self.aspiration_current
+                beta = current_score + self.aspiration_current
                 
                 best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
                 
                 if self.stopped: break 
                 
-                # if score falls outside window, re-search
+                # check if we failed the window
                 if score <= alpha or score >= beta:
-                    send_info_string(f'first aspiration failed: {self.first_aspiration_window}')
+                    # window failed - widen it
+                    send_info_string(f'aspiration failed: {self.aspiration_current}')
+                    self.aspiration_current = min(self.aspiration_current * 2, self.aspiration_max)
+                    self.aspiration_stability_count = 0
                     
-                    # attempt 2: larger window
-                    if score <= alpha: alpha = current_score - self.second_aspiration_window
-                    if score >= beta:  beta = current_score + self.second_aspiration_window
+                    # re-search with wider window
+                    alpha = current_score - self.aspiration_current
+                    beta = current_score + self.aspiration_current
                     
                     best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
                     
                     if self.stopped: break
                     
+                    # if still failing, go full window
                     if score <= alpha or score >= beta:
-                        send_info_string(f'second aspiration failed: {self.second_aspiration_window}')
-                        # attempt 3: full-window
-                        if score <= alpha: alpha = -INFINITY
-                        if score >= beta:  beta = INFINITY
+                        send_info_string(f'aspiration failed again: {self.aspiration_current}')
+                        alpha = -INFINITY
+                        beta = INFINITY
                         
                         best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
+                else:
+                    # window succeeded - tighten it
+                    self.aspiration_stability_count += 1
+                    if self.aspiration_stability_count >= 3:  # 3 stable searches
+                        # tighten window
+                        self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * 0.75))
+                        self.aspiration_stability_count = 0
+                        send_info_string(f'aspiration tightened: {self.aspiration_current}')
             else:
+                # full search at depth 1
                 best_move, score = self._search_root(state, current_depth, moves, -INFINITY, INFINITY)
 
             if self.stopped: break
@@ -192,7 +218,6 @@ class SearchEngine:
             
             elapsed = time.time() - self.start_time
             elapsed = elapsed * 1000
-            # stop if > 90% of time used to prevent timing out in next depth
             if elapsed > self.time_limit * 0.9: break
                 
             current_depth += 1
@@ -206,23 +231,25 @@ class SearchEngine:
         
         k1 = self.ordering.killer_moves[depth][0]
         k2 = self.ordering.killer_moves[depth][1]
-
-        moves.sort(key=lambda m: self.ordering.get_move_score(m, tt_move, state, depth, k1, k2), reverse=True)
+        counter = self.ordering.get_countermove(None)
 
         best_move = moves[0]
         best_value = -INFINITY * 10
         ply = 0
         
-        for i, move in enumerate(moves):
+        for i in range(len(moves)):
+            # pick next best move incrementally
+            pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
+            move = moves[i]
+            
             make_move(state, move)
 
-            # root moves are already legal, no check needed here
             if i == 0:
-                value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1)
+                value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move)
             else:
-                value = -self._alpha_beta(state, depth - 1, -(alpha + 1), -alpha, ply + 1)
+                value = -self._alpha_beta(state, depth - 1, -(alpha + 1), -alpha, ply + 1, move)
                 if alpha < value < beta:
-                    value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1)
+                    value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move)
             
             if self.stopped:
                 unmake_move(state, move)
@@ -243,10 +270,23 @@ class SearchEngine:
             
         return best_move, best_value
 
-    def _alpha_beta(self, state, depth, alpha, beta, ply, allow_null=True):
+    def _alpha_beta(self, state, depth, alpha, beta, ply, previous_move=None, allow_null=True):
         if self.stopped: return 0
 
         self.nodes_searched += 1
+
+        # mate distance pruning
+        mating_value = INFINITY - ply
+        if mating_value < beta:
+            beta = mating_value
+            if alpha >= mating_value:
+                return mating_value
+        
+        mated_value = -INFINITY + ply
+        if mated_value > alpha:
+            alpha = mated_value
+            if beta <= mated_value:
+                return mated_value
 
         if (self.nodes_searched & TIME_CHECK_NODES) == 0:
             if time.time() - self.start_time > self.time_limit / 1000.0: 
@@ -254,26 +294,28 @@ class SearchEngine:
                 return 0
         
         is_threefold, is_fivefold = is_repetition(state)
-        if is_threefold:
-            if alpha >= 100: return -50  # winning -> draw is bad
-            elif alpha < -100: return 0  # losing -> draw is good
-            return -20 # equal -> rather not draw
-        if is_fivefold: return 0
-        # 50-move rule (draw)
+
+        if is_threefold or is_fivefold:
+            if alpha >= 100: return -75 # winning
+            elif alpha < -100: return 50 # losing
+            return -5 # drawn
+
         if state.halfmove_clock >= 100: return 0
 
-        # syzygy leaf probe
-        wdl = self.syzygy.probe_wdl(state)
-        if wdl is not None:
-            dtz = self.syzygy.probe_dtz(state)
-            TB_WIN_SCORE = INFINITY - 1000
+        # syzygy leaf probe (only when <= 5 pieces) - moved from syzygy class to here
+        all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
+        if all_pieces.bit_count() <= 5:
+            wdl = self.syzygy.probe_wdl(state)
+            if wdl is not None:
+                dtz = self.syzygy.probe_dtz(state)
+                TB_WIN_SCORE = INFINITY - 1000
 
-            if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
-            elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
-            else: score = 0
+                if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
+                elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
+                else: score = 0
 
-            self.tt.store(state.hash, depth, score, FLAG_EXACT, None)
-            return score
+                self.tt.store(state.hash, depth, score, FLAG_EXACT, None)
+                return score
 
         tt_entry = self.tt.probe(state.hash)
         if tt_entry and tt_entry.depth >= depth:
@@ -285,66 +327,113 @@ class SearchEngine:
         if depth <= 0: return self._quiescence(state, alpha, beta, ply)
 
         in_check = is_in_check(state, state.is_white)
+        
+        # internal iterative deepening (IID)
+        # if no TT move at a PV node with sufficient depth, do a reduced search
+        if not in_check and depth >= 4 and tt_entry is None:
+            # do a reduced depth search to get a move to try first
+            reduced_depth = depth - 2
+            self._alpha_beta(state, reduced_depth, alpha, beta, ply, previous_move, allow_null=True)
+            # after this search, there SHOULD be a TT entry
+            tt_entry = self.tt.probe(state.hash)
 
-        # reverse futility pruning (static null move pruning)
+        # reverse futility pruning
         if not in_check and depth <= 3 and allow_null:
-            static_eval = evaluate(state)
-            # reverse futility margin
+            static_eval = evaluate(state, self.pawn_hash)
             rfp_margin = 120 * depth
             if static_eval - rfp_margin >= beta:
                 return static_eval - rfp_margin
 
+        # null move pruning
         if allow_null and depth >= 3 and not in_check:
             make_null_move(state)
 
             reduction = 2
-            val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, allow_null=False)
+            val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, None, allow_null=False)
             unmake_null_move(state)
             
             if self.stopped: return 0
             if val >= beta: return beta
 
+        # futility pruning
+        do_futility = False
+        if not in_check and depth <= 3 and allow_null:
+            static_eval = evaluate(state, self.pawn_hash)
+            futility_margin = 150 * depth
+            if static_eval + futility_margin < alpha:
+                do_futility = True
+
         moves = generate_pseudo_legal_moves(state)
 
-        # removed generator - might change back
         tt_move = tt_entry.best_move if tt_entry else None
         k1 = self.ordering.killer_moves[depth][0]
         k2 = self.ordering.killer_moves[depth][1]
-        
-        moves.sort(key=lambda m: self.ordering.get_move_score(m, tt_move, state, depth, k1, k2), reverse=True)
+        counter = self.ordering.get_countermove(previous_move)
         
         best_value = -INFINITY * 10
         best_move = None
         legal_moves_count = 0
         
-        for i, move in enumerate(moves):
+        # time pressure tactics
+        # if opponent is low on time and position is equal, boost checking moves
+        time_pressure_mode = (self.opponent_time_ms < 10000 and abs(best_value) < 100)
+        
+        # incremental move selection
+        for i in range(len(moves)):
+            # pick next best move
+            pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
+            move = moves[i]
+            
             make_move(state, move)
             
-            # no legality check caused TT pollution; so removed
             if is_in_check(state, not state.is_white):
                 unmake_move(state, move)
                 continue
             
             legal_moves_count += 1
             
-            # LMR Logic
+            # check if this move gives check (time pressure tactic)
+            gives_check = is_in_check(state, state.is_white)
+            
+            # futility pruning - skip quiet moves in hopeless positions
             is_interesting = (move & CAPTURE_FLAG) or (move & EP_FLAG) or (move & PROMO_FLAG)
+            
+            # don't prune checking moves in time pressure
+            if gives_check and time_pressure_mode:
+                is_interesting = True
+            
+            if do_futility and not is_interesting:
+                unmake_move(state, move)
+                continue
+            
+            # SEE pruning for bad captures
+            if (move & CAPTURE_FLAG) and depth <= 6 and not gives_check:
+                # don't play obviously losing captures
+                if not see_fast(state, move, threshold=-100):
+                    unmake_move(state, move)
+                    continue
+            
+            # LMR Logic
             needs_full = True
 
             if depth >= 3 and legal_moves_count >= 3 and not is_interesting and not in_check:
                 reduction = 1
                 if legal_moves_count >= 10: reduction = 2
+                # reduce less if move gives check in time pressure
+                if gives_check and time_pressure_mode:
+                    reduction = max(0, reduction - 1)
+                
                 reduced_depth = max(1, depth - 1 - reduction)
-                val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, allow_null=True)
+                val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, move, allow_null=True)
                 if val <= alpha: needs_full = False
             
             if needs_full:
-                if i == 0:
-                    value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, allow_null=True)
+                if legal_moves_count == 1:
+                    value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move, allow_null=True)
                 else:
-                    value = -self._alpha_beta(state, depth - 1, -(alpha + 1), -alpha, ply + 1, allow_null=True)
+                    value = -self._alpha_beta(state, depth - 1, -(alpha + 1), -alpha, ply + 1, move, allow_null=True)
                     if alpha < value < beta:
-                        value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, allow_null=True)
+                        value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move, allow_null=True)
             else:
                 value = val
 
@@ -358,6 +447,7 @@ class SearchEngine:
                 self.tt.store(state.hash, depth, beta, FLAG_LOWERBOUND, move)
                 self.ordering.store_killer(depth, move)
                 self.ordering.store_history(move, depth)
+                self.ordering.store_countermove(previous_move, move)
                 return beta
             
             if value > best_value:
@@ -382,6 +472,13 @@ class SearchEngine:
         self.nodes_searched += 1
         if self.stopped: return 0
 
+        # mate distance pruning
+        mating_value = INFINITY - ply
+        if mating_value < beta:
+            beta = mating_value
+            if alpha >= mating_value:
+                return mating_value
+
         tt_entry = self.tt.probe(state.hash)
         
         if tt_entry:
@@ -394,12 +491,12 @@ class SearchEngine:
         in_check = is_in_check(state, state.is_white)
         
         if not in_check:
-            evaluation = evaluate(state)
+            evaluation = evaluate(state, self.pawn_hash)
             
             if evaluation >= beta: return beta
             
             # delta pruning
-            delta = PIECE_VALUES[QUEEN] + PIECE_VALUES[PAWN]  # queen value + pawn margin
+            delta = PIECE_VALUES[QUEEN] + PIECE_VALUES[PAWN]
             if evaluation < alpha - delta:
                 return alpha
             
@@ -410,39 +507,26 @@ class SearchEngine:
             moves = generate_pseudo_legal_moves(state, captures_only=False)
         else:
             moves = generate_pseudo_legal_moves(state, captures_only=True)
-            
+        
+        # simple MVV-LVA ordering for quiescence
         scored_moves = []
         for m in moves:
             score = 0
             if (m & CAPTURE_FLAG):
-                score = self.ordering.get_move_score(m, None, state, 0, None, None)
+                score = self.ordering.get_move_score(m, None, None, state, 0, None, None)
             scored_moves.append((score, m))
-            
-        scored_moves.sort(key=lambda x: x[0], reverse=True)
+        scored_moves.sort(reverse=True)
         
         legal_moves_found = False
         
-        for _, move in scored_moves:
-            # SEE pruning for obviously bad captures in quiescence search
+        for score, move in scored_moves:
+            # SEE pruning in quiescence - skip bad captures
             if not in_check and (move & CAPTURE_FLAG):
-                # skip captures that are likely losing
-                from_sq = move & MASK_SOURCE
-                to_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
-                attacker = state.board[from_sq]
-                victim = state.board[to_sq]
-                
-                if victim != NULL:
-                    attacker_val = PIECE_VALUES.get((attacker & ~WHITE), 100)
-                    victim_val = PIECE_VALUES.get((victim & ~WHITE), 100)
-                    
-                    # skip if we're capturing a lower value piece with a higher value piece
-                    # TODO: check if the piece is defended
-                    if attacker_val > victim_val + 1.5 * PIECE_VALUES[PAWN]:
-                        continue
+                if not see_fast(state, move, threshold=-50):
+                    continue
             
             make_move(state, move)
             
-            # brought legality back
             if is_in_check(state, not state.is_white):
                 unmake_move(state, move)
                 continue

@@ -121,3 +121,64 @@ if __name__ == '__main__':
             
     except FileNotFoundError:
         print(f"Error: File '{path}' not found")
+
+"""
+------------------------------------------------------------
+TimeControl: 180+1 (Games: 6)
+------------------------------------------------------------
+sophia       :   5.0 pts  (W:4 D:2 L:0)
+    Wins   : [Checkmate:4]
+    Draws  : [Fivefold Repetition:2]
+
+previous     :   1.0 pts  (W:0 D:2 L:4)
+    Draws  : [Fivefold Repetition:2]
+    Losses : [Checkmate:4]
+
+>> Winner: sophia
+
+
+------------------------------------------------------------
+TimeControl: 60+0 (Games: 6)
+------------------------------------------------------------
+sophia       :   4.0 pts  (W:2 D:4 L:0)
+    Wins   : [Checkmate:2]
+    Draws  : [Fivefold Repetition:4]
+
+previous     :   2.0 pts  (W:0 D:4 L:2)
+    Draws  : [Fivefold Repetition:4]
+    Losses : [Checkmate:2]
+
+>> Winner: sophia
+
+
+------------------------------------------------------------
+TimeControl: 600+1 (Games: 26)
+------------------------------------------------------------
+sophia       :  16.0 pts  (W:11 D:10 L:5)
+    Wins   : [Checkmate:9, Time Forfeit:1, Illegal Move (d7d8q):1]
+    Draws  : [Fivefold Repetition:10]
+    Losses : [Checkmate:5]
+
+previous     :  10.0 pts  (W:5 D:10 L:11)
+    Wins   : [Checkmate:5]
+    Draws  : [Fivefold Repetition:10]
+    Losses : [Checkmate:9, Time Forfeit:1, Illegal Move (d7d8q):1]
+
+>> Winner: sophia
+
+
+------------------------------------------------------------
+TimeControl: Overall (Games: 38)
+------------------------------------------------------------
+sophia       :  25.0 pts  (W:17 D:16 L:5)
+    Wins   : [Checkmate:15, Time Forfeit:1, Illegal Move (d7d8q):1]
+    Draws  : [Fivefold Repetition:16]
+    Losses : [Checkmate:5]
+
+previous     :  13.0 pts  (W:5 D:16 L:17)
+    Wins   : [Checkmate:5]
+    Draws  : [Fivefold Repetition:16]
+    Losses : [Checkmate:15, Time Forfeit:1, Illegal Move (d7d8q):1]
+
+>> Winner: sophia
+"""

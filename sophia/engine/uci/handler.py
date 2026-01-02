@@ -45,10 +45,10 @@ class UCI:
         send_command('uciok')
 
     def handle_new_game(self):
-        # self.engine = SearchEngine()
-        # perf: just clearing the tables instead of reinstantiating - keeps JIT warmed up
+        # clear tables but keep JIT warm
         self.engine.tt.clear()
         self.engine.ordering.clear()
+        self.engine.pawn_hash = type(self.engine.pawn_hash)(16) # reset pawn hash
         self.state.history = []
 
     def handle_position(self, args):
@@ -105,6 +105,10 @@ class UCI:
         except IndexError: pass
 
         time_limit = 2000
+        
+        # track opponent time for time pressure tactics
+        opponent_time = b_time if self.state.is_white else w_time
+        if opponent_time is None: opponent_time = 999999
 
         if move_time: 
             time_limit = move_time
@@ -112,28 +116,27 @@ class UCI:
             my_time = w_time if self.state.is_white else b_time
             my_inc = w_inc if self.state.is_white else b_inc
             
-            # estimate remaining moves (assume a game lasts 60 moves)
+            # estimate remaining moves
             moves_played = self.state.fullmove_number
             remaining_moves_est = max(20, 60 - moves_played)
             
             # time allocation
             time_limit = (my_time / remaining_moves_est) + (my_inc * 0.7)
             
-            # panic mode: if we have less than 8 seconds, play much faster
-            if my_time < 8000:
+            # panic mode: if we have less than 10 seconds, play much faster
+            if my_time < 10000:
                 time_limit = my_time / 5
                 
-            # network / execution overhead: account for engine overhead and lag
-            overhead = 80
+            # network / execution overhead
+            overhead = 200
             time_limit = max(30, time_limit - overhead)
 
         self.engine.time_limit = int(time_limit)
         
         try:
-            best_move = self.engine.get_best_move(self.state)
+            best_move = self.engine.get_best_move(self.state, opponent_time)
             
             if isinstance(best_move, str):
-                # already a string (from syzygy)
                 move_str = best_move
             elif best_move is not None:
                 move_str = move_to_uci(best_move)

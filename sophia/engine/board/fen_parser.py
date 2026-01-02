@@ -5,7 +5,7 @@ from engine.core.constants import (
     CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ,
     FLIP_BOARD, CHAR_TO_PIECE, PIECE_STR, SQUARE_TO_BB
 )
-from engine.search.evaluation import calculate_initial_score
+from engine.search.evaluation import calculate_initial_score, calculate_initial_passed_pawns
 from engine.core.zobrist import compute_hash
 
 def load_from_fen(fen_string: str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') -> State:
@@ -27,6 +27,12 @@ def load_from_fen(fen_string: str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
     
     state.mg_score, state.eg_score, state.phase = calculate_initial_score(state)
     state.hash = compute_hash(state)
+    
+    # calculate initial passed pawn bitboards
+    state.white_passed_pawns, state.black_passed_pawns = calculate_initial_passed_pawns(state)
+    
+    # initialise last moved piece (no moves yet)
+    state.last_moved_piece_sq = NULL
     
     return state
 

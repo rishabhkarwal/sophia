@@ -4,11 +4,11 @@ from engine.core.move import (
     SHIFT_TARGET, SHIFT_FLAG, SPECIAL_1, SPECIAL_0
 )
 from engine.core.constants import (
-    WHITE, BLACK, NULL, PAWN, KNIGHT, BISHOP, ROOK, QUEEN,
+    WHITE, BLACK, NULL, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
     A1, H1, A8, H8, E1, C1, G1, E8, C8, G8, F1, D1, F8, D8,
     MASK_SOURCE,
-    WP, BP, WR, BR,
+    WP, BP, WR, BR, WK, BK,
     WHITE, BLACK,
     NORTH, SOUTH, SQUARE_TO_BB
 )
@@ -34,9 +34,10 @@ def is_repetition(state: State):
 def make_null_move(state: State):
     old_ep = state.en_passant_square
     old_hash = state.hash
+    old_last_moved = state.last_moved_piece_sq  # save last moved piece
     
     # store undo info on stack
-    state.context_stack.append((old_ep, old_hash))
+    state.context_stack.append((old_ep, old_hash, old_last_moved))
     
     ep_key = old_ep % 8 if old_ep != NULL else 8
     state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
@@ -45,14 +46,17 @@ def make_null_move(state: State):
     
     state.is_white = not state.is_white
     state.hash ^= ZOBRIST_KEYS.black_to_move
+    
+    state.last_moved_piece_sq = NULL  # reset last moved piece
 
 def unmake_null_move(state: State):
     # retrieve from stack
-    old_ep, old_hash = state.context_stack.pop()
+    old_ep, old_hash, old_last_moved = state.context_stack.pop()
     
     state.en_passant_square = old_ep
     state.hash = old_hash
     state.is_white = not state.is_white
+    state.last_moved_piece_sq = old_last_moved  # restore
 
 def make_move(state: State, move: int):
     old_hash = state.hash
@@ -63,6 +67,11 @@ def make_move(state: State, move: int):
     old_mg = state.mg_score
     old_eg = state.eg_score
     old_phase = state.phase
+    
+    # save incremental eval state
+    old_w_passed = state.white_passed_pawns
+    old_b_passed = state.black_passed_pawns
+    old_last_moved = state.last_moved_piece_sq
     
     bitboards = state.bitboards
     board = state.board
@@ -112,6 +121,12 @@ def make_move(state: State, move: int):
             state.phase -= PHASE_WEIGHTS[captured_piece]
 
             state.piece_counts[captured_piece] -= 1
+            
+            # update passed pawn tracking if pawn captured
+            if not state.is_white:
+                state.white_passed_pawns &= ~cap_mask
+            else:
+                state.black_passed_pawns &= ~cap_mask
         else:
             captured_piece = board[target_sq]
             
@@ -125,6 +140,14 @@ def make_move(state: State, move: int):
             
             state.piece_counts[captured_piece] -= 1
             
+            # update passed pawn tracking if pawn captured
+            captured_type = captured_piece & ~WHITE
+            if captured_type == PAWN:
+                if captured_piece & WHITE:
+                    state.white_passed_pawns &= ~target_mask
+                else:
+                    state.black_passed_pawns &= ~target_mask
+            
     if move & PROMO_FLAG:
         promo_idx = (move >> SHIFT_FLAG) & (SPECIAL_1 | SPECIAL_0)
         promo_types = (KNIGHT, BISHOP, ROOK, QUEEN)
@@ -137,6 +160,12 @@ def make_move(state: State, move: int):
         
         state.piece_counts[moving_piece] -= 1
         state.piece_counts[promoted_piece] += 1
+        
+        # remove promoted pawn from passed pawn tracking
+        if state.is_white:
+            state.white_passed_pawns &= ~start_mask
+        else:
+            state.black_passed_pawns &= ~start_mask
     else:
         target_piece = moving_piece
         
@@ -147,6 +176,16 @@ def make_move(state: State, move: int):
     bitboards[active_bb] |= target_mask
     state.hash ^= ZOBRIST_KEYS.pieces[target_piece][target_sq]
     board[target_sq] = target_piece
+    
+    # update passed pawn tracking if pawn moved
+    piece_type = moving_piece & ~WHITE
+    if piece_type == PAWN and not (move & PROMO_FLAG):
+        if state.is_white:
+            state.white_passed_pawns &= ~start_mask
+            state.white_passed_pawns |= target_mask
+        else:
+            state.black_passed_pawns &= ~start_mask
+            state.black_passed_pawns |= target_mask
     
     flag_shifted = move >> SHIFT_FLAG
     if flag_shifted == CASTLE_KS_FLAG >> SHIFT_FLAG or flag_shifted == CASTLE_QS_FLAG >> SHIFT_FLAG:
@@ -176,13 +215,11 @@ def make_move(state: State, move: int):
 
     state.hash ^= ZOBRIST_KEYS.castling[state.castling_rights]
     
-    # rooks: remove rights if rook moves OR rook square is captured
+    # castling rights update
     if start_sq == A1 or target_sq == A1: state.castling_rights &= ~CASTLE_WQ
     if start_sq == H1 or target_sq == H1: state.castling_rights &= ~CASTLE_WK
     if start_sq == A8 or target_sq == A8: state.castling_rights &= ~CASTLE_BQ
     if start_sq == H8 or target_sq == H8: state.castling_rights &= ~CASTLE_BK
-
-    # kings: ONLY if king moves FROM these squares
     if start_sq == E1: state.castling_rights &= ~(CASTLE_WK | CASTLE_WQ)
     if start_sq == E8: state.castling_rights &= ~(CASTLE_BK | CASTLE_BQ)
     
@@ -193,7 +230,6 @@ def make_move(state: State, move: int):
     
     state.en_passant_square = NULL
     
-    piece_type = moving_piece & ~WHITE
     if piece_type == PAWN and abs(start_sq - target_sq) == NORTH + NORTH:
         state.en_passant_square = (start_sq + target_sq) // 2
         
@@ -204,6 +240,9 @@ def make_move(state: State, move: int):
     else: state.halfmove_clock += 1
         
     if not state.is_white: state.fullmove_number += 1
+    
+    # track last moved piece for repetition penalty
+    state.last_moved_piece_sq = target_sq
         
     state.is_white = not state.is_white
     state.hash ^= ZOBRIST_KEYS.black_to_move
@@ -218,12 +257,15 @@ def make_move(state: State, move: int):
         old_hash, 
         old_mg, 
         old_eg, 
-        old_phase
+        old_phase,
+        old_w_passed,  # store passed pawn state
+        old_b_passed,
+        old_last_moved
     ))
 
 def unmake_move(state: State, move: int):
     undo_info = state.context_stack.pop()
-    captured_piece, old_castling, old_ep, old_halfmove, old_hash, old_mg, old_eg, old_phase = undo_info
+    captured_piece, old_castling, old_ep, old_halfmove, old_hash, old_mg, old_eg, old_phase, old_w_passed, old_b_passed, old_last_moved = undo_info
     
     if old_hash is None: return
 
@@ -243,6 +285,11 @@ def unmake_move(state: State, move: int):
     state.mg_score = old_mg
     state.eg_score = old_eg
     state.phase = old_phase
+    
+    # restore incremental eval state
+    state.white_passed_pawns = old_w_passed
+    state.black_passed_pawns = old_b_passed
+    state.last_moved_piece_sq = old_last_moved
     
     if not state.is_white: state.fullmove_number -= 1
         

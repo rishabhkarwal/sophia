@@ -6,14 +6,6 @@ from engine.core.constants import (
     BP, BN, BB, BR, BQ, BK,
     WHITE, BLACK, FLIP_BOARD, SQUARE_TO_BB
 )
-from engine.moves.precomputed import (
-    KNIGHT_ATTACKS,
-    KING_ATTACKS,
-    BISHOP_MASKS,
-    BISHOP_TABLE,
-    ROOK_MASKS,
-    ROOK_TABLE
-)
 from engine.search.psqt import PSQTs
 
 # piece values
@@ -24,13 +16,16 @@ EG_VALUES = {PAWN: 94, KNIGHT: 281, BISHOP: 297, ROOK: 512, QUEEN: 936, KING: 0}
 PHASE_INC = {PAWN: 0, KNIGHT: 1, BISHOP: 1, ROOK: 2, QUEEN: 4, KING: 0}
 MAX_PHASE = 4 * PHASE_INC[KNIGHT] + 4 * PHASE_INC[BISHOP] + 4 * PHASE_INC[ROOK] + 2 * PHASE_INC[QUEEN]
 
-PASSED_PAWN_BONUS = [0, 10, 17, 15, 62, 168, 276, 0]
-ISOLATED_PAWN_PENALTY = -10
-DOUBLED_PAWN_PENALTY = -12
-BISHOP_PAIR_BONUS = 25
-ROOK_OPEN_FILE = 10
-ROOK_SEMI_OPEN_FILE = 5
-CONNECTED_ROOKS_BONUS = 15
+# streamlined: keep only fast, high-impact features rather than overdoing it
+BISHOP_PAIR_BONUS = 40
+ROOK_OPEN_FILE = 8
+ROOK_SEMI_OPEN_FILE = 4
+
+# trading behaviour parameters (was too 'trade-happy')
+WINNING_THRESHOLD = 150  # cp advantage to consider "winning"
+LOSING_THRESHOLD = -150  # cp disadvantage to consider "losing"
+TRADE_BONUS_PER_PIECE = 5  # bonus for trading when winning
+TRADE_PENALTY_PER_PIECE = 8  # penalty for trading when losing
 
 
 MG_TABLE = [[0] * 64 for _ in range(16)]
@@ -40,6 +35,24 @@ PHASE_WEIGHTS = [0] * 16
 PASSED_PAWN_MASKS = [[0] * 64 for _ in range(2)]
 FILE_MASKS = [0] * 8
 ADJACENT_FILE_MASKS = [0] * 8
+
+# pawn hash table
+class PawnHashTable: # I don't really want a new file for this
+    def __init__(self, size_mb=16):
+        total_bytes = size_mb * 1024 * 1024
+        self.size = total_bytes // 12
+        self.table = [None] * self.size
+    
+    def probe(self, pawn_hash):
+        idx = pawn_hash % self.size
+        entry = self.table[idx]
+        if entry and entry[0] == pawn_hash:
+            return entry[1]
+        return None
+    
+    def store(self, pawn_hash, score):
+        idx = pawn_hash % self.size
+        self.table[idx] = (pawn_hash, score)
 
 def init_eval_tables():
     piece_type_map = {
@@ -111,7 +124,36 @@ def calculate_initial_score(state):
 
     return mg, eg, phase
 
+def calculate_initial_passed_pawns(state):
+    """calculate initial passed pawn bitboards"""
+    w_pawns = state.bitboards[WP]
+    b_pawns = state.bitboards[BP]
+    
+    w_passed = 0
+    b_passed = 0
+    
+    # white passed pawns
+    temp = w_pawns
+    while temp:
+        lsb = temp & -temp
+        sq = lsb.bit_length() - 1
+        if not (PASSED_PAWN_MASKS[WHITE][sq] & b_pawns):
+            w_passed |= lsb
+        temp &= temp - 1
+    
+    # black passed pawns
+    temp = b_pawns
+    while temp:
+        lsb = temp & -temp
+        sq = lsb.bit_length() - 1
+        if not (PASSED_PAWN_MASKS[BLACK][sq] & w_pawns):
+            b_passed |= lsb
+        temp &= temp - 1
+    
+    return w_passed, b_passed
+
 def get_mop_up_score(state, winning_colour):
+    """Endgame mop-up evaluation"""
     winning_king_bb = state.bitboards[WK if winning_colour == WHITE else BK]
     losing_king_bb = state.bitboards[BK if winning_colour == WHITE else WK]
 
@@ -123,18 +165,72 @@ def get_mop_up_score(state, winning_colour):
     losing_rank, losing_file = losing_sq // 8, losing_sq % 8
 
     centre_dist = max(3 - losing_rank, losing_rank - 4) + max(3 - losing_file, losing_file - 4)
-
     mop_up = 4 * centre_dist
 
     winning_rank, winning_file = winning_sq // 8, winning_sq % 8
-
     dist_between_kings = abs(winning_rank - losing_rank) + abs(winning_file - losing_file)
-
     mop_up += 2 * (14 - dist_between_kings)
 
     return mop_up if winning_colour == WHITE else -mop_up
 
-def evaluate(state):
+def _evaluate_pawn_structure_fast(state, w_pawns, b_pawns):
+    """Fast pawn evaluation using precomputed passed pawns"""
+    pawn_score = 0
+
+    PASSED_BONUS = [0, 10, 17, 15, 62, 168, 276, 0]
+    
+    # white
+    temp = state.white_passed_pawns
+    while temp:
+        lsb = temp & -temp
+        sq = lsb.bit_length() - 1
+        rank = sq // 8
+        pawn_score += PASSED_BONUS[rank]
+        temp &= temp - 1
+    
+    # black
+    temp = state.black_passed_pawns
+    while temp:
+        lsb = temp & -temp
+        sq = lsb.bit_length() - 1
+        rank = sq // 8
+        pawn_score -= PASSED_BONUS[7 - rank]
+        temp &= temp - 1
+    
+    return pawn_score
+
+def evaluate_trading_bonus(state, base_eval):
+    """
+    winning: bonus for simplification (equal trades)
+    losing: penalty for trades
+    """
+    if abs(base_eval) < 100: # position is roughly equal
+        return 0
+    
+    # count total pieces (excluding pawns and kings)
+    w_pieces = (state.bitboards[WN].bit_count() + state.bitboards[WB].bit_count() + 
+                state.bitboards[WR].bit_count() + state.bitboards[WQ].bit_count())
+    b_pieces = (state.bitboards[BN].bit_count() + state.bitboards[BB].bit_count() + 
+                state.bitboards[BR].bit_count() + state.bitboards[BQ].bit_count())
+    
+    total_pieces = w_pieces + b_pieces
+    
+    # fewer pieces on board = more simplified
+    # max pieces at start: 12 (4N + 4B + 4R + 2Q per side = 24 total)
+    simplification_level = 24 - total_pieces
+    
+    trading_adjustment = 0
+    
+    if base_eval > WINNING_THRESHOLD: # white winning
+        # bonus for simplification
+        trading_adjustment = simplification_level * TRADE_BONUS_PER_PIECE
+    elif base_eval < LOSING_THRESHOLD: # white losing
+        # penalty for simplification
+        trading_adjustment = -simplification_level * TRADE_PENALTY_PER_PIECE
+    
+    return trading_adjustment
+
+def evaluate(state, pawn_hash_table=None):
     mg_phase = min(state.phase, MAX_PHASE)
     eg_phase = MAX_PHASE - mg_phase
     
@@ -151,80 +247,31 @@ def evaluate(state):
     if bitboards[WB].bit_count() >= 2: evaluation += BISHOP_PAIR_BONUS
     if bitboards[BB].bit_count() >= 2: evaluation -= BISHOP_PAIR_BONUS
 
-    # king Safety & pawn structure
-    w_king_sq = (bitboards[WK] & -bitboards[WK]).bit_length() - 1 if bitboards[WK] else -1
-    b_king_sq = (bitboards[BK] & -bitboards[BK]).bit_length() - 1 if bitboards[BK] else -1
-    w_king_zone = KING_ATTACKS[w_king_sq] if w_king_sq != -1 else 0
-    b_king_zone = KING_ATTACKS[b_king_sq] if b_king_sq != -1 else 0
+    # precomputed passed pawns (already tracked incrementally)
+    pawn_score = _evaluate_pawn_structure_fast(state, w_pawns, b_pawns)
+    evaluation += pawn_score
 
-    # white pawns & structure
-    temp_w = w_pawns
-    while temp_w:
-        lsb = temp_w & -temp_w
-        sq = lsb.bit_length() - 1
-        f = sq % 8
-        if not (PASSED_PAWN_MASKS[WHITE][sq] & b_pawns): evaluation += PASSED_PAWN_BONUS[sq // 8]
-        if (w_pawns & FILE_MASKS[f]) != lsb: evaluation += DOUBLED_PAWN_PENALTY
-        if not (w_pawns & ADJACENT_FILE_MASKS[f]): evaluation += ISOLATED_PAWN_PENALTY
-        temp_w &= temp_w - 1
-
-    # black pawns & structure
-    temp_b = b_pawns
-    while temp_b:
-        lsb = temp_b & -temp_b
-        sq = lsb.bit_length() - 1
-        f = sq % 8
-        if not (PASSED_PAWN_MASKS[BLACK][sq] & w_pawns): evaluation -= PASSED_PAWN_BONUS[7 - (sq // 8)]
-        if (b_pawns & FILE_MASKS[f]) != lsb: evaluation -= DOUBLED_PAWN_PENALTY
-        if not (b_pawns & ADJACENT_FILE_MASKS[f]): evaluation -= ISOLATED_PAWN_PENALTY
-        temp_b &= temp_b - 1
-
-    # rooks & mobility & king safety zone attacks
-    for colour, p_keys in [(WHITE, [WN, WB, WR, WQ]), (BLACK, [BN, BB, BR, BQ])]:
+    # rook evaluation
+    for colour, rook_piece in [(WHITE, WR), (BLACK, BR)]:
         score_adj = 0
-        enemy_pawns = b_pawns if colour == WHITE else w_pawns
-        enemy_king_zone = b_king_zone if colour == WHITE else w_king_zone
         
-        # connected rooks & open files
-        rooks = bitboards[WR if colour == WHITE else BR]
-        if rooks.bit_count() >= 2:
-            r1 = (rooks & -rooks).bit_length() - 1
-            r2 = (rooks & (rooks - 1)).bit_length() - 1
-            if ROOK_TABLE[r1][all_pieces & ROOK_MASKS[r1]] & SQUARE_TO_BB[r2]: 
-                score_adj += CONNECTED_ROOKS_BONUS
-        
-        temp_rooks = rooks
+        temp_rooks = bitboards[rook_piece]
         while temp_rooks:
             sq = (temp_rooks & -temp_rooks).bit_length() - 1
             f = sq % 8
             if not (w_pawns & FILE_MASKS[f]) and not (b_pawns & FILE_MASKS[f]): 
                 score_adj += ROOK_OPEN_FILE
-            elif not (enemy_pawns & FILE_MASKS[f]): 
+            elif not ((b_pawns if colour == WHITE else w_pawns) & FILE_MASKS[f]): 
                 score_adj += ROOK_SEMI_OPEN_FILE
             temp_rooks &= temp_rooks - 1
-
-        # mobility & attacks
-        for p_key in p_keys:
-            pieces = bitboards[p_key]
-            # extract piece type by removing colour bit
-            p_type = p_key & ~WHITE
-            
-            while pieces:
-                sq = (pieces & -pieces).bit_length() - 1
-                
-                if p_type == KNIGHT: atts = KNIGHT_ATTACKS[sq]
-                elif p_type == BISHOP: atts = BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]]
-                elif p_type == ROOK: atts = ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]]
-                else: atts = ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] | BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] # queen
-                
-                score_adj += atts.bit_count()
-                if atts & enemy_king_zone: 
-                    score_adj += 15 * (atts & enemy_king_zone).bit_count()
-                pieces &= pieces - 1
         
         evaluation += score_adj if colour == WHITE else -score_adj
 
-    # mop up
+    # trading behaviour adjustment
+    trading_bonus = evaluate_trading_bonus(state, evaluation)
+    evaluation += trading_bonus
+
+    # mop up in endgame
     if mg_phase < int(MAX_PHASE * 0.4):
         score_no_mopup = evaluation if state.is_white else -evaluation
         if score_no_mopup > 200: 

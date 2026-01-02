@@ -22,6 +22,13 @@ class State:
     eg_score: int = 0
     phase: int = 0
     
+    # incremental evaluation tracking for performance
+    white_passed_pawns: int = 0  # bitboard of white passed pawns
+    black_passed_pawns: int = 0  # bitboard of black passed pawns
+    
+    # track last moved piece for repetition detection
+    last_moved_piece_sq: int = NULL
+    
     def get_piece_at(self, square):
         p = self.board[square]
         return p if p != NULL else None
