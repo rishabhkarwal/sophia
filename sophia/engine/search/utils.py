@@ -3,7 +3,8 @@ from engine.core.constants import (
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
     NULL, WHITE, BLACK,
-    WHITE, BLACK
+    WHITE, BLACK,
+    MAX_DEPTH, INFINITY
 )
 
 def state_to_board(state):
@@ -50,3 +51,17 @@ def state_to_board(state):
     board.fullmove_number = state.fullmove_number
     
     return board
+
+def _get_cp_score(score, max_mate_depth=MAX_DEPTH):
+    if INFINITY - abs(score) < max_mate_depth:
+        if score > 0:
+            ply_to_mate = INFINITY - score
+            mate_in = (ply_to_mate + 1) // 2
+            score_str = f"mate {mate_in}"
+        else:
+            ply_to_mate = INFINITY + score
+            mate_in = (ply_to_mate + 1) // 2
+            score_str = f"mate -{mate_in}"
+    else:
+        score_str = f"cp {int(score)}"
+    return score_str

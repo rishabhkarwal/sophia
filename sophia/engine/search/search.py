@@ -25,6 +25,7 @@ from engine.search.ordering import MoveOrdering, pick_next_move
 from engine.search.see import see_fast
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
+from engine.search.utils import _get_cp_score
 
 class SearchEngine:
     def __init__(self, time_limit=2000, tt_size_mb=64):
@@ -74,20 +75,6 @@ class SearchEngine:
 
         return ' '.join(move_to_uci(m) for m in pv_moves)
 
-    def _get_cp_score(self, score, max_mate_depth=MAX_DEPTH):
-        if INFINITY - abs(score) < max_mate_depth:
-            if score > 0:
-                ply_to_mate = INFINITY - score
-                mate_in = (ply_to_mate + 1) // 2
-                score_str = f"mate {mate_in}"
-            else:
-                ply_to_mate = INFINITY + score
-                mate_in = (ply_to_mate + 1) // 2
-                score_str = f"mate -{mate_in}"
-        else:
-            score_str = f"cp {int(score)}"
-        return score_str
-
     def get_best_move(self, state, opp_time_ms=999999):
         syzygy_result = self.syzygy.get_best_move(state)
         if syzygy_result:
@@ -98,7 +85,7 @@ class SearchEngine:
             elif wdl < 0: score = -INFINITY + ply + abs(dtz)
             else: score = 0
 
-            score_str = self._get_cp_score(score)
+            score_str = _get_cp_score(score)
             self.tbhits += 1
 
             send_command(f"info depth {abs(dtz)} score {score_str} pv {syzygy_move} tbhits {self.tbhits} string syzygy hit")
@@ -197,7 +184,7 @@ class SearchEngine:
             elapsed = time.time() - self.start_time
             nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
             
-            score_str = self._get_cp_score(score)
+            score_str = _get_cp_score(score)
 
             hashfull = self.tt.get_hashfull()
             pv_string = self._get_pv_line(state, current_depth)
