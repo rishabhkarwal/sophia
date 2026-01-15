@@ -123,201 +123,99 @@ if __name__ == '__main__':
         print(f"Error: File '{path}' not found")
 
 """
-From debugging and analysing the game logs - illegal moves were returned because game would end due to time and the bestmove would send just when the next game started => illegal move
-
-Although score is ~50 / 50; new version has more checkmates
-
-NOTE: benchmark is previous version
-
-------------------------------------------------------------
-TimeControl: 180+1 (Games: 40)
-------------------------------------------------------------
-benchmark    :  26.5 pts  (W:21 D:11 L:8)
-    Wins   : [Checkmate:7, Time Forfeit:13, Illegal Move (e7e5):1]
-    Draws  : [Fivefold Repetition:11]
-    Losses : [Checkmate:8]
-
-sophia       :  13.5 pts  (W:8 D:11 L:21)
-    Wins   : [Checkmate:8]
-    Draws  : [Fivefold Repetition:11]
-    Losses : [Checkmate:7, Time Forfeit:13, Illegal Move (e7e5):1]
-
->> Winner: benchmark
-
-
-------------------------------------------------------------
-TimeControl: 60+0 (Games: 40)
-------------------------------------------------------------
-sophia       :  25.0 pts  (W:23 D:4 L:13)
-    Wins   : [Checkmate:16, Time Forfeit:7]
-    Draws  : [Fivefold Repetition:4]
-    Losses : [Checkmate:7, Time Forfeit:6]
-
-benchmark    :  15.0 pts  (W:13 D:4 L:23)
-    Wins   : [Checkmate:7, Time Forfeit:6]
-    Draws  : [Fivefold Repetition:4]
-    Losses : [Checkmate:16, Time Forfeit:7]
-
->> Winner: sophia
-
-
-------------------------------------------------------------
-TimeControl: 600+1 (Games: 19)
-------------------------------------------------------------
-sophia       :  11.5 pts  (W:10 D:3 L:6)
-    Wins   : [Checkmate:6, Time Forfeit:1, Illegal Move (e6d6):1, Illegal Move (g1f3):1, Illegal Move (c7c5):1]
-    Draws  : [Fivefold Repetition:3]
-    Losses : [Checkmate:5, Illegal Move (0000):1]
-
-benchmark    :   7.5 pts  (W:6 D:3 L:10)
-    Wins   : [Checkmate:5, Illegal Move (0000):1]
-    Draws  : [Fivefold Repetition:3]
-    Losses : [Checkmate:6, Time Forfeit:1, Illegal Move (e6d6):1, Illegal Move (g1f3):1, Illegal Move (c7c5):1]
-
->> Winner: sophia
-
-
-------------------------------------------------------------
-TimeControl: Overall (Games: 99)
-------------------------------------------------------------
-sophia       :  50.0 pts  (W:41 D:18 L:40)
-    Wins   : [Checkmate:30, Time Forfeit:8, Illegal Move (e6d6):1, Illegal Move (g1f3):1, Illegal Move (c7c5):1]
-    Draws  : [Fivefold Repetition:18]
-    Losses : [Checkmate:19, Time Forfeit:19, Illegal Move (e7e5):1, Illegal Move (0000):1]
-
-benchmark    :  49.0 pts  (W:40 D:18 L:41)
-    Wins   : [Checkmate:19, Time Forfeit:19, Illegal Move (e7e5):1, Illegal Move (0000):1]
-    Draws  : [Fivefold Repetition:18]
-    Losses : [Checkmate:30, Time Forfeit:8, Illegal Move (e6d6):1, Illegal Move (g1f3):1, Illegal Move (c7c5):1]
-
->> Winner: sophia
-"""
-
-"""
-More tests: NOTE: illegal moves are still just carried over from previous games
+Although new version has won overall; it is due to time pressure rather than skill so added features didn't actually make it stronger - Sophia still has more mates
 
 ------------------------------------------------------------
 TimeControl: 120+1 (Games: 30)
 ------------------------------------------------------------
-sophia       :  17.0 pts  (W:13 D:8 L:9)
-    Wins   : [Checkmate:9, Time Forfeit:4]
-    Draws  : [Insufficient Material:1, Fivefold Repetition:7]
-    Losses : [Checkmate:8, Time Forfeit:1]
+new          :  16.5 pts  (W:11 D:11 L:8)
+    Wins   : [Checkmate:10, Illegal Move (0000):1]
+    Draws  : [Fivefold Repetition:11]
+    Losses : [Checkmate:8]
 
-benchmark    :  13.0 pts  (W:9 D:8 L:13)
-    Wins   : [Checkmate:8, Time Forfeit:1]
-    Draws  : [Insufficient Material:1, Fivefold Repetition:7]
-    Losses : [Checkmate:9, Time Forfeit:4]
+sophia       :  13.5 pts  (W:8 D:11 L:11)
+    Wins   : [Checkmate:8]
+    Draws  : [Fivefold Repetition:11]
+    Losses : [Checkmate:10, Illegal Move (0000):1]
+
+>> Winner: new
+
+
+------------------------------------------------------------
+TimeControl: 180+0 (Games: 7)
+------------------------------------------------------------
+sophia       :   5.0 pts  (W:5 D:0 L:2)
+    Wins   : [Checkmate:5]
+    Losses : [Time Forfeit:2]
+
+new          :   2.0 pts  (W:2 D:0 L:5)
+    Wins   : [Time Forfeit:2]
+    Losses : [Checkmate:5]
 
 >> Winner: sophia
 
 
 ------------------------------------------------------------
-TimeControl: 180+1 (Games: 40)
+TimeControl: 180+2 (Games: 40)
 ------------------------------------------------------------
-sophia       :  26.5 pts  (W:23 D:7 L:10)
-    Wins   : [Checkmate:20, Time Forfeit:3]
-    Draws  : [Fivefold Repetition:7]
-    Losses : [Checkmate:6, Illegal Move (0000):1, Time Forfeit:1, Illegal Move (d4e5):1, Illegal Move (c7c5):1]
+new          :  21.5 pts  (W:16 D:11 L:13)
+    Wins   : [Checkmate:9, Illegal Move (0000):1, Time Forfeit:4, Illegal Move (e2e4):1, Illegal Move (f1b5):1]
+    Draws  : [Fivefold Repetition:8, Insufficient Material:2, 75 Moves Rule:1]
+    Losses : [Checkmate:13]
 
-benchmark    :  13.5 pts  (W:10 D:7 L:23)
-    Wins   : [Checkmate:6, Illegal Move (0000):1, Time Forfeit:1, Illegal Move (d4e5):1, Illegal Move (c7c5):1]
-    Draws  : [Fivefold Repetition:7]
-    Losses : [Checkmate:20, Time Forfeit:3]
+sophia       :  18.5 pts  (W:13 D:11 L:16)
+    Wins   : [Checkmate:13]
+    Draws  : [Fivefold Repetition:8, Insufficient Material:2, 75 Moves Rule:1]
+    Losses : [Checkmate:9, Illegal Move (0000):1, Time Forfeit:4, Illegal Move (e2e4):1, Illegal Move (f1b5):1]
 
->> Winner: sophia
-
-
-------------------------------------------------------------
-TimeControl: 180+2 (Games: 32)
-------------------------------------------------------------
-benchmark    :  17.0 pts  (W:11 D:12 L:9)
-    Wins   : [Checkmate:11]
-    Draws  : [Fivefold Repetition:12]
-    Losses : [Engine Crash:1, Checkmate:8]
-
-sophia       :  15.0 pts  (W:9 D:12 L:11)
-    Wins   : [Engine Crash:1, Checkmate:8]
-    Draws  : [Fivefold Repetition:12]
-    Losses : [Checkmate:11]
-
->> Winner: benchmark
+>> Winner: new
 
 
 ------------------------------------------------------------
-TimeControl: 300+5 (Games: 2)
+TimeControl: 60+0 (Games: 59)
 ------------------------------------------------------------
-benchmark    :   1.5 pts  (W:1 D:1 L:0)
-    Wins   : [Checkmate:1]
-    Draws  : [Fivefold Repetition:1]
+new          :  37.5 pts  (W:35 D:5 L:19)
+    Wins   : [Checkmate:9, Time Forfeit:24, Engine Crash:2]
+    Draws  : [Fivefold Repetition:5]
+    Losses : [Checkmate:17, Time Forfeit:2]
 
-sophia       :   0.5 pts  (W:0 D:1 L:1)
-    Draws  : [Fivefold Repetition:1]
-    Losses : [Checkmate:1]
+sophia       :  21.5 pts  (W:19 D:5 L:35)
+    Wins   : [Checkmate:17, Time Forfeit:2]
+    Draws  : [Fivefold Repetition:5]
+    Losses : [Checkmate:9, Time Forfeit:24, Engine Crash:2]
 
->> Winner: benchmark
-
-
-------------------------------------------------------------
-TimeControl: 60+0 (Games: 12)
-------------------------------------------------------------
-sophia       :   7.5 pts  (W:7 D:1 L:4)
-    Wins   : [Checkmate:6, Engine Crash:1]
-    Draws  : [Fivefold Repetition:1]
-    Losses : [Time Forfeit:4]
-
-benchmark    :   4.5 pts  (W:4 D:1 L:7)
-    Wins   : [Time Forfeit:4]
-    Draws  : [Fivefold Repetition:1]
-    Losses : [Checkmate:6, Engine Crash:1]
-
->> Winner: sophia
+>> Winner: new
 
 
 ------------------------------------------------------------
-TimeControl: 60+1 (Games: 20)
+TimeControl: 600+1 (Games: 20)
 ------------------------------------------------------------
-sophia       :  15.0 pts  (W:12 D:6 L:2)
+sophia       :  13.0 pts  (W:12 D:2 L:6)
     Wins   : [Checkmate:12]
-    Draws  : [Fivefold Repetition:6]
-    Losses : [Checkmate:2]
+    Draws  : [Fivefold Repetition:2]
+    Losses : [Checkmate:6]
 
-benchmark    :   5.0 pts  (W:2 D:6 L:12)
-    Wins   : [Checkmate:2]
-    Draws  : [Fivefold Repetition:6]
+new          :   7.0 pts  (W:6 D:2 L:12)
+    Wins   : [Checkmate:6]
+    Draws  : [Fivefold Repetition:2]
     Losses : [Checkmate:12]
 
 >> Winner: sophia
 
 
 ------------------------------------------------------------
-TimeControl: 600+0 (Games: 20)
-------------------------------------------------------------
-benchmark    :  10.5 pts  (W:9 D:3 L:8)
-    Wins   : [Time Forfeit:2, Checkmate:5, Illegal Move (g7h6):1, Illegal Move (e2e4):1]
-    Draws  : [Fivefold Repetition:2, 75 Moves Rule:1]
-    Losses : [Checkmate:7, Time Forfeit:1]
-
-sophia       :   9.5 pts  (W:8 D:3 L:9)
-    Wins   : [Checkmate:7, Time Forfeit:1]
-    Draws  : [Fivefold Repetition:2, 75 Moves Rule:1]
-    Losses : [Time Forfeit:2, Checkmate:5, Illegal Move (g7h6):1, Illegal Move (e2e4):1]
-
->> Winner: benchmark
-
-
-------------------------------------------------------------
 TimeControl: Overall (Games: 156)
 ------------------------------------------------------------
-sophia       :  91.0 pts  (W:72 D:38 L:46)
-    Wins   : [Engine Crash:2, Checkmate:62, Time Forfeit:8]
-    Draws  : [Fivefold Repetition:36, 75 Moves Rule:1, Insufficient Material:1]
-    Losses : [Checkmate:33, Time Forfeit:8, Illegal Move (g7h6):1, Illegal Move (e2e4):1, Illegal Move (0000):1, Illegal Move (d4e5):1, Illegal Move (c7c5):1]     
+new          :  84.5 pts  (W:70 D:29 L:57)
+    Wins   : [Checkmate:34, Time Forfeit:30, Engine Crash:2, Illegal Move (0000):2, Illegal Move (e2e4):1, Illegal Move (f1b5):1]
+    Draws  : [Fivefold Repetition:26, Insufficient Material:2, 75 Moves Rule:1]
+    Losses : [Checkmate:55, Time Forfeit:2]
 
-benchmark    :  65.0 pts  (W:46 D:38 L:72)
-    Wins   : [Checkmate:33, Time Forfeit:8, Illegal Move (g7h6):1, Illegal Move (e2e4):1, Illegal Move (0000):1, Illegal Move (d4e5):1, Illegal Move (c7c5):1]     
-    Draws  : [Fivefold Repetition:36, 75 Moves Rule:1, Insufficient Material:1]
-    Losses : [Engine Crash:2, Checkmate:62, Time Forfeit:8]
+sophia       :  71.5 pts  (W:57 D:29 L:70)
+    Wins   : [Checkmate:55, Time Forfeit:2]
+    Draws  : [Fivefold Repetition:26, Insufficient Material:2, 75 Moves Rule:1]
+    Losses : [Checkmate:34, Time Forfeit:30, Engine Crash:2, Illegal Move (0000):2, Illegal Move (e2e4):1, Illegal Move (f1b5):1]
 
->> Winner: sophia
+>> Winner: new
+
 """
