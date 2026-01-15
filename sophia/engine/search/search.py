@@ -36,6 +36,10 @@ from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
 from engine.search.utils import _get_cp_score
 
+class TimeoutError(Exception):
+    """Raised when search runs out of time"""
+    pass
+
 class SearchEngine:
     def __init__(self, time_limit=2000, tt_size_mb=64):
         self.time_limit = time_limit
@@ -58,7 +62,20 @@ class SearchEngine:
         
         self.opponent_time_ms = 999999
         
-        self.stopped = False
+        # hard and soft time limits for better time management
+        self.hard_time_limit = 0.0
+        self.soft_time_limit = 0.0
+    
+    def _check_time(self):
+        elapsed = time.time() - self.start_time
+        
+        # hard limit: stop immediately
+        if elapsed >= self.hard_time_limit:
+            raise TimeoutError("hard time limit exceeded")
+        
+        # soft limit: should stop at next opportunity  
+        if elapsed >= self.soft_time_limit:
+            raise TimeoutError("soft time limit exceeded")
     
     def _get_pv_line(self, state, max_depth=20):
         pv_moves = []
@@ -111,7 +128,10 @@ class SearchEngine:
         self.start_time = time.time()
         self.root_colour = state.is_white
         
-        self.stopped = False
+        # set time limits
+        self.soft_time_limit = self.time_limit / 1000.0
+        self.hard_time_limit = min(self.soft_time_limit * 1.5, self.time_limit / 1000.0 + 0.5)
+        
         self.depth_reached = 0
         
         #self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * 0.8)
@@ -140,75 +160,74 @@ class SearchEngine:
         current_depth = 1
         current_score = 0
         
-        while True:
-            if best_move_so_far in moves:
-                moves.remove(best_move_so_far)
-                moves.insert(0, best_move_so_far)
-            
-            alpha = -INFINITY
-            beta = INFINITY
-            
-            if current_depth > 2:
-                alpha = current_score - self.aspiration_current
-                beta = current_score + self.aspiration_current
+        # wrap in try-except to catch timeout error
+        try:
+            while True:
+                if best_move_so_far in moves:
+                    moves.remove(best_move_so_far)
+                    moves.insert(0, best_move_so_far)
                 
-                best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
+                alpha = -INFINITY
+                beta = INFINITY
                 
-                if self.stopped: break 
-                
-                if score <= alpha or score >= beta:
-                    send_info_string(f'aspiration failed: {self.aspiration_current}')
-                    self.aspiration_current = min(self.aspiration_current * 2, self.aspiration_max)
-                    self.aspiration_stability_count = 0
-                    
+                if current_depth > 2:
                     alpha = current_score - self.aspiration_current
                     beta = current_score + self.aspiration_current
                     
                     best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
                     
-                    if self.stopped: break
-                    
                     if score <= alpha or score >= beta:
-                        send_info_string(f'aspiration failed again: {self.aspiration_current}')
+                        send_info_string(f'aspiration failed: {self.aspiration_current}')
+                        self.aspiration_current = min(self.aspiration_current * 2, self.aspiration_max)
                         self.aspiration_stability_count = 0
-                        alpha = -INFINITY
-                        beta = INFINITY
+                        
+                        alpha = current_score - self.aspiration_current
+                        beta = current_score + self.aspiration_current
+                        
                         best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
+                        
+                        if score <= alpha or score >= beta:
+                            send_info_string(f'aspiration failed again: {self.aspiration_current}')
+                            self.aspiration_stability_count = 0
+                            alpha = -INFINITY
+                            beta = INFINITY
+                            best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
+                    else:
+                        self.aspiration_stability_count += 1
+                        if self.aspiration_stability_count >= 3:
+                            self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * 0.8))
+                            #self.aspiration_stability_count = 0
+                            if self.aspiration_current > self.aspiration_min: send_info_string(f'aspiration tightened: {self.aspiration_current}')
                 else:
-                    self.aspiration_stability_count += 1
-                    if self.aspiration_stability_count >= 3:
-                        self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * 0.8))
-                        #self.aspiration_stability_count = 0
-                        if self.aspiration_current > self.aspiration_min: send_info_string(f'aspiration tightened: {self.aspiration_current}')
-            else:
-                best_move, score = self._search_root(state, current_depth, moves, -INFINITY, INFINITY)
+                    best_move, score = self._search_root(state, current_depth, moves, -INFINITY, INFINITY)
 
-            if self.stopped: break
-
-            best_move_so_far = best_move
-            current_score = score
-            
-            self.depth_reached = current_depth
-            
-            elapsed = time.time() - self.start_time
-            nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
-            
-            score_str = _get_cp_score(score)
-
-            hashfull = self.tt.get_hashfull()
-            pv_string = self._get_pv_line(state, current_depth)
-
-            send_command(f"info depth {current_depth} seldepth {self.seldepth} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull} tbhits {self.tbhits} pv {pv_string}")
-
-            if abs(score) >= INFINITY - 1000:
-                break
-            
-            elapsed = time.time() - self.start_time
-            elapsed = elapsed * 1000
-            if elapsed > self.time_limit * 0.8: break
+                best_move_so_far = best_move
+                current_score = score
                 
-            current_depth += 1
-            if current_depth > MAX_DEPTH: break
+                self.depth_reached = current_depth
+                
+                elapsed = time.time() - self.start_time
+                nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
+                
+                score_str = _get_cp_score(score)
+
+                hashfull = self.tt.get_hashfull()
+                pv_string = self._get_pv_line(state, current_depth)
+
+                send_command(f"info depth {current_depth} seldepth {self.seldepth} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull} tbhits {self.tbhits} pv {pv_string}")
+
+                if abs(score) >= INFINITY - 1000:
+                    break
+                
+                time_usage_pct = 0.7 if self.time_limit > 120000 else 0.9
+                if elapsed > self.soft_time_limit * time_usage_pct:
+                    break
+                    
+                current_depth += 1
+                if current_depth > MAX_DEPTH: break
+                    
+        except TimeoutError:
+            pass
                 
         return best_move_so_far
 
@@ -237,10 +256,6 @@ class SearchEngine:
                 if alpha < value < beta:
                     value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move, is_pv=True)
             
-            if self.stopped:
-                unmake_move(state, move)
-                return best_move, -INFINITY
-            
             unmake_move(state, move)
             
             if value > best_value:
@@ -251,17 +266,19 @@ class SearchEngine:
                 alpha = value
                 if alpha >= beta: return best_move, alpha
 
-        if not self.stopped:
-            self.tt.store(state.hash, depth, best_value, FLAG_EXACT, best_move)
+        self.tt.store(state.hash, depth, best_value, FLAG_EXACT, best_move)
             
         return best_move, best_value
 
     def _alpha_beta(self, state, depth, alpha, beta, ply, previous_move=None, allow_null=True, is_pv=False):
-        if self.stopped: return 0
-
         if ply > self.seldepth: self.seldepth = ply
 
         self.nodes_searched += 1
+
+        # check time more frequently when low on time
+        check_interval = TIME_CHECK_NODES if self.time_limit > 10000 else 255
+        if (self.nodes_searched & check_interval) == 0:
+            self._check_time()
 
         mating_value = INFINITY - ply
         if mating_value < beta:
@@ -274,11 +291,6 @@ class SearchEngine:
             alpha = mated_value
             if beta <= mated_value:
                 return mated_value
-
-        if (self.nodes_searched & TIME_CHECK_NODES) == 0:
-            if time.time() - self.start_time > self.time_limit / 1000.0: 
-                self.stopped = True
-                return 0
         
         is_threefold, is_fivefold = is_repetition(state)
 
@@ -409,7 +421,6 @@ class SearchEngine:
             val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, None, allow_null=False, is_pv=False)
             unmake_null_move(state)
             
-            if self.stopped: return 0
             if val >= beta: return beta
 
         # futility pruning
@@ -431,7 +442,7 @@ class SearchEngine:
         best_move = None
         legal_moves_count = 0
         
-        time_pressure_mode = (self.opponent_time_ms < 10000 and abs(best_value) < 100)
+        time_pressure_mode = self.opponent_time_ms < 10_000
         
         for i in range(len(moves)):
             pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
@@ -492,10 +503,6 @@ class SearchEngine:
                         value = -self._alpha_beta(state, depth - 1, -beta, -alpha, ply + 1, move, allow_null=True, is_pv=is_pv)
             else:
                 value = val
-
-            if self.stopped:
-                unmake_move(state, move)
-                return 0
             
             unmake_move(state, move)
 
@@ -519,14 +526,12 @@ class SearchEngine:
         flag = FLAG_EXACT
         if best_value <= alpha: flag = FLAG_UPPERBOUND
         
-        if not self.stopped:
-            self.tt.store(state.hash, depth, best_value, flag, best_move)
+        self.tt.store(state.hash, depth, best_value, flag, best_move)
             
         return best_value
 
     def _quiescence(self, state, alpha, beta, ply):
         self.nodes_searched += 1
-        if self.stopped: return 0
 
         if ply > self.seldepth: self.seldepth = ply
 
