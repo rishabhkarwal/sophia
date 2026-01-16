@@ -8,6 +8,7 @@ from engine.core.move import (
     CAPTURE, EN_PASSANT, PROMOTION, 
     SHIFT_TARGET, SHIFT_FLAG
 )
+from engine.search.see import see_fast
 
 # repetition penalty for moving same piece repeatedly
 REPETITION_PENALTY = -25  # (except king)
@@ -104,7 +105,15 @@ class MoveOrdering:
         flag = (move >> SHIFT_FLAG) & 0xF
         is_cap = (flag & CAPTURE) or (flag == EN_PASSANT) or (flag & PROMOTION)
         
-        if is_cap: return INFINITY * 10 + self._get_mvv_lva_score(state, move)
+        if is_cap:
+            mvv_lva = self._get_mvv_lva_score(state, move)
+            
+            if see_fast(state, move, threshold=0):
+                # good capture
+                return INFINITY * 10 + mvv_lva
+            else:
+                # bad capture
+                return mvv_lva
         
         if move == counter_move: return INFINITY * 9.5
         if move == killer_1: return INFINITY * 9
