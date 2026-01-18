@@ -74,15 +74,17 @@ def init_eval_tables():
         
         w_piece = WHITE | p_type
         PHASE_WEIGHTS[w_piece] = phase_inc
-        MG_TABLE[w_piece] = [mg_val + val for val in mg_psqt]
-        EG_TABLE[w_piece] = [eg_val + val for val in eg_psqt]
-        
+
         b_piece = BLACK | p_type
         PHASE_WEIGHTS[b_piece] = phase_inc
+
         for sq in range(64):
             flipped_sq = sq ^ FLIP_BOARD
-            MG_TABLE[b_piece][sq] = -(mg_val + mg_psqt[flipped_sq])
-            EG_TABLE[b_piece][sq] = -(eg_val + eg_psqt[flipped_sq])
+            MG_TABLE[w_piece][sq] = mg_val + mg_psqt[flipped_sq]
+            EG_TABLE[w_piece][sq] = eg_val + eg_psqt[flipped_sq]
+
+            MG_TABLE[b_piece][sq] = -(mg_val + mg_psqt[sq])
+            EG_TABLE[b_piece][sq] = -(eg_val + eg_psqt[sq])
     
     for f in range(8):
         mask = FILE_A << f
