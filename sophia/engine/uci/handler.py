@@ -12,8 +12,10 @@ from engine.uci.utils import send_command, send_info_string
 from engine.core.move import move_to_uci
 from engine.search.book import OpeningBook
 
-# Import the new test suite
-from engine.uci.tests import evaluate, perft, draw, win_percentage, move_accuracy
+from engine.uci.tests import (
+    evaluate, perft, draw, win_percentage, move_accuracy, 
+    legal_moves, see
+)
 
 class UCI:
     def __init__(self):
@@ -39,81 +41,21 @@ class UCI:
         command = parts[0]
 
         # standard UCI commands
-        if command == 'uci': return self.handle_uci()
-        elif command == 'isready': return send_command('readyok')
-        elif command == 'ucinewgame': return self.handle_new_game()
-        elif command == 'position': return self.handle_position(parts[1:])
-        elif command == 'go': return self.handle_go(parts[1:])
+        if command == 'uci': self.handle_uci()
+        elif command == 'isready': send_command('readyok')
+        elif command == 'ucinewgame': self.handle_new_game()
+        elif command == 'position': self.handle_position(parts[1:])
+        elif command == 'go': self.handle_go(parts[1:])
         elif command == 'quit': sys.exit()
         
         # custom debug commands
-        elif command == 'd': return draw(self.state)
-        elif command == 'eval': return evaluate(self.state)
-        elif command == 'perft': return perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
-        elif command == 'win': return win_percentage(self.state)
-        elif command == 'acc': return move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
-        elif command == 'play': return self.handle_play()
-
-    def handle_play(self):
-        """Self-play loop"""
-        w_time, b_time = 10000, 10000 # 10 seconds each
-        
-        send_info_string(f"starting self-play")
-        uci_draw = 'd'.split()
-        self.parse_input(uci_draw)
-
-        while True:
-            if self.state.halfmove_clock >= 100: 
-                send_info_string('draw: 50-move rule')
-                break
-                
-            threefold, fivefold = is_repetition(self.state)
-            if threefold: send_info_string('draw: threefold repetition'); break
-            elif fivefold: send_info_string('draw: fivefold repetition'); break
-                
-            uci_go = f'go wtime {int(w_time)} btime {int(b_time)}'.split()
-            
-            is_white = self.state.is_white
-            engine_time = w_time if is_white else b_time
-            start_time = time.time()
-            
-            result = self.parse_input(uci_go)
-            
-            if not result or not result.startswith('bestmove'):
-                send_info_string("error: engine did not return a move")
-                break
-                
-            best_move_str = result.replace('bestmove ', '').strip()
-
-            elapsed = (time.time() - start_time) * 1000
-            engine_time -= elapsed
-
-            if engine_time <= 0:
-                winner = "black" if is_white else "white"
-                send_info_string(f"time: {winner} wins")
-                break
-
-            if best_move_str == '0000':
-                if is_in_check(self.state, is_white):
-                    winner = "black" if is_white else "white"
-                    send_info_string(f"checkmate: {winner} wins")
-                else:
-                    send_info_string("draw: stalemate")
-                break
-
-            legal_moves = get_legal_moves(self.state)
-            found = False
-            for move in legal_moves:
-                if move_to_uci(move) == best_move_str:
-                    make_move(self.state, move)
-                    found = True
-                    break
-            
-            if not found:
-                send_info_string(f"error: engine played illegal move {best_move_str}")
-                break
-
-            self.parse_input(uci_draw)
+        elif command == 'd': draw(self.state)
+        elif command == 'eval': evaluate(self.state)
+        elif command == 'perft': perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
+        elif command == 'win': win_percentage(self.state)
+        elif command == 'acc': move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'legal': legal_moves(self.state)
+        elif command == 'see': see(self.state, parts[1] if len(parts) > 1 else '0000')
 
     def handle_go(self, args):
         book_move = self.book.get_move(self.state)
@@ -170,12 +112,10 @@ class UCI:
         try:
             best_move = self.engine.get_best_move(self.state, opponent_time)
             
-            if isinstance(best_move, str):
-                move_str = best_move
-            elif best_move is not None:
-                move_str = move_to_uci(best_move)
-            else:
-                move_str = '0000'
+            if isinstance(best_move, str): move_str = best_move
+            elif best_move is not None: move_str = move_to_uci(best_move)
+            else: move_str = '0000'
+
             response = f'bestmove {move_str}'
             send_command(response)
             return response
@@ -196,7 +136,7 @@ class UCI:
         self.engine.tt.clear()
         self.engine.ordering.clear()
         self.engine.pawn_hash = type(self.engine.pawn_hash)(16)
-        self.state.history = []
+        self.state = load_from_fen() 
 
     def handle_position(self, args):
         moves_idx = -1

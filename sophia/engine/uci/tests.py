@@ -6,6 +6,7 @@ from engine.search.evaluation import evaluate as static_eval, MAX_PHASE
 from engine.core.move import move_to_uci
 from engine.search.utils import state_to_board
 from engine.uci.utils import send_command
+from engine.search.see import see_full
 from engine.core.constants import (
     WHITE, BLACK, NULL,
     WP, WN, WB, WR, WQ, WK,
@@ -120,9 +121,37 @@ def move_accuracy(state, move_str):
         
         if s_move == move_str.lower():
             make_move(state, legal_move)
-            win_percent_after = _get_win_percentage(state)
+            opp_win_percent = _get_win_percentage(state)
+            win_percent_after = 100.0 - opp_win_percent
             unmake_move(state, legal_move)
             is_valid = True
             break
     if not is_valid: send_command(f'error: invalid move {move_str}\n')
     else: send_command(f'{_get_move_accuracy(win_percent_before, win_percent_after) :.2f}%\n')
+
+def legal_moves(state):
+    """Prints all legal moves in the current position"""
+    moves = get_legal_moves(state)
+    move_strings = [move_to_uci(m) for m in moves]
+    move_strings.sort()
+    
+    send_command(f"count: {len(moves)}")
+    send_command(f"moves: {' '.join(move_strings)}\n")
+
+def see(state, move_str):
+    """Runs SEE on a specific move"""
+    target_move_str = move_str.lower()
+    moves = get_legal_moves(state)
+    
+    found_move = None
+    for move in moves:
+        if move_to_uci(move) == target_move_str:
+            found_move = move
+            break
+    
+    if found_move is None:
+        send_command(f"error: move '{target_move_str}' is not legal or valid")
+        return
+
+    score = see_full(state, found_move)
+    send_command(f"see {target_move_str}: {score}\n")

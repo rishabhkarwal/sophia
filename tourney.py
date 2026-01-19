@@ -2,7 +2,7 @@ from gui.tournament import Tournament
 from gui.config import Config
 
 if __name__ == '__main__':
-    new = 'fixed/engine.bat'
+    new = 'sophia/engine.bat'
     old = 'sophia/engine.bat'
 
     n_bullet = 15

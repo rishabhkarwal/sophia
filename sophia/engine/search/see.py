@@ -1,6 +1,8 @@
 from engine.core.constants import (
     WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    PIECE_VALUES, MASK_SOURCE, SQUARE_TO_BB, NULL
+    PIECE_VALUES, MASK_SOURCE, SQUARE_TO_BB, NULL,
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK
 )
 from engine.core.move import SHIFT_TARGET, EP_FLAG, SHIFT_FLAG
 from engine.moves.precomputed import (
