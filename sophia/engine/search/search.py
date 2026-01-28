@@ -1,7 +1,7 @@
 import time
 from engine.core.constants import (
     WHITE, BLACK, INFINITY,
-    MAX_DEPTH, TIME_CHECK_NODES,
+    MAX_DEPTH, TIME_CHECK_NODES, INFINITE_TIME,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     MASK_SOURCE, NULL, PIECE_VALUES,
     RAZOR_MARGIN, STATIC_NULL_MARGIN, FUTILITY_MARGIN,
@@ -60,13 +60,17 @@ class SearchEngine:
         self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * 0.8)
         self.aspiration_stability_count = 0
         
-        self.opponent_time_ms = 999999
+        self.opponent_time_ms = INFINITE_TIME
+        self.nodes_limit = None
         
         # hard and soft time limits for better time management
         self.hard_time_limit = 0.0
         self.soft_time_limit = 0.0
     
     def _check_time(self):
+        if self.nodes_limit is not None and self.nodes_searched >= self.nodes_limit:
+            raise TimeoutError("nodes limit reached")
+
         elapsed = time.time() - self.start_time
         
         # hard limit: stop immediately
@@ -101,7 +105,7 @@ class SearchEngine:
 
         return ' '.join(move_to_uci(m) for m in pv_moves)
 
-    def get_best_move(self, state, opp_time_ms=999999):
+    def get_best_move(self, state, opp_time_ms=INFINITE_TIME, depth_limit=None, nodes_limit=None, is_movetime=False):
         syzygy_result = self.syzygy.get_best_move(state)
         if syzygy_result:
             syzygy_move, wdl, dtz = syzygy_result
@@ -121,6 +125,7 @@ class SearchEngine:
             return syzygy_move
         
         self.opponent_time_ms = opp_time_ms
+        self.nodes_limit = nodes_limit
 
         self.nodes_searched = 0
         self.seldepth = 0
@@ -130,7 +135,12 @@ class SearchEngine:
         
         # set time limits
         self.soft_time_limit = self.time_limit / 1000.0
-        self.hard_time_limit = min(self.soft_time_limit * 1.5, self.time_limit / 1000.0 + 0.5)
+        if is_movetime:
+            # if explicit movetime, hard limit is strict
+            self.hard_time_limit = self.soft_time_limit
+        else:
+            # dynamic time management
+            self.hard_time_limit = min(self.soft_time_limit * 1.5, self.time_limit / 1000.0 + 0.5)
         
         self.depth_reached = 0
         
@@ -163,6 +173,9 @@ class SearchEngine:
         # wrap in try-except to catch timeout error
         try:
             while True:
+                if depth_limit is not None and current_depth > depth_limit:
+                    break
+
                 if best_move_so_far in moves:
                     moves.remove(best_move_so_far)
                     moves.insert(0, best_move_so_far)
@@ -219,9 +232,11 @@ class SearchEngine:
                 if abs(score) >= INFINITY - 1000:
                     break
                 
-                time_usage_pct = 0.7 if self.time_limit > 120000 else 0.9
-                if elapsed > self.soft_time_limit * time_usage_pct:
-                    break
+                if not is_movetime and depth_limit is None and nodes_limit is None:
+                    time_usage_pct = 0.7 if self.time_limit > 120000 else 0.9
+                    elapsed = time.time() - self.start_time
+                    if elapsed > self.soft_time_limit * time_usage_pct:
+                        break
                     
                 current_depth += 1
                 if current_depth > MAX_DEPTH: break

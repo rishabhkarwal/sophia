@@ -6,7 +6,7 @@ from engine.board.fen_parser import load_from_fen
 from engine.board.move_exec import make_move, is_repetition
 from engine.moves.generator import get_legal_moves
 from engine.moves.legality import is_in_check
-from engine.core.constants import NAME, AUTHOR
+from engine.core.constants import NAME, AUTHOR, INFINITE_TIME
 from engine.search.search import SearchEngine
 from engine.uci.utils import send_command, send_info_string
 from engine.core.move import move_to_uci
@@ -71,23 +71,30 @@ class UCI:
         b_inc = 0
         move_time = None
 
+        depth_limit = None
+        nodes_limit = None
+
         try:
             for i in range(len(args)):
-                if args[i] == 'wtime': w_time = int(args[i + 1])
-                elif args[i] == 'btime': b_time = int(args[i + 1])
-                elif args[i] == 'winc': w_inc = int(args[i + 1])
-                elif args[i] == 'binc': b_inc = int(args[i + 1])
-                elif args[i] == 'movetime': move_time = int(args[i + 1])
+                token = args[i]
+                if token == 'wtime': w_time = int(args[i + 1])
+                elif token == 'btime': b_time = int(args[i + 1])
+                elif token == 'winc': w_inc = int(args[i + 1])
+                elif token == 'binc': b_inc = int(args[i + 1])
+                elif token == 'movetime': move_time = int(args[i + 1])
+                elif token == 'depth': depth_limit = int(args[i + 1])
+                elif token == 'nodes': nodes_limit = int(args[i + 1])
         except IndexError: pass
 
         time_limit = 2000
         
         # track opponent time for time pressure tactics
         opponent_time = b_time if self.state.is_white else w_time
-        if opponent_time is None: opponent_time = 999999
+        if opponent_time is None: opponent_time = INFINITE_TIME
 
         if move_time: 
             time_limit = move_time
+
         elif w_time is not None and b_time is not None:
             my_time = w_time if self.state.is_white else b_time
             my_inc = w_inc if self.state.is_white else b_inc
@@ -107,10 +114,13 @@ class UCI:
             overhead = 200
             time_limit = max(overhead, time_limit - overhead)
 
+        elif depth_limit is not None or nodes_limit is not None:
+            time_limit = INFINITE_TIME # effectively
+
         self.engine.time_limit = int(time_limit)
         
         try:
-            best_move = self.engine.get_best_move(self.state, opponent_time)
+            best_move = self.engine.get_best_move(self.state, opponent_time, depth_limit, nodes_limit, (move_time is not None))
             
             if isinstance(best_move, str): move_str = best_move
             elif best_move is not None: move_str = move_to_uci(best_move)
