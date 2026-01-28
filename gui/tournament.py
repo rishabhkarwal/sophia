@@ -106,25 +106,34 @@ class Tournament:
             if not move_queue.empty(): best_move_str = move_queue.get()
 
             real_elapsed = time.time() - turn_start_time
-            if is_white: w_time = max(0, w_time - real_elapsed + self.cfg.increment)
-            else: b_time = max(0, b_time - real_elapsed + self.cfg.increment)
 
-            if best_move_str:
-                try:
-                    move = chess.Move.from_uci(best_move_str)
-                    if move in board.legal_moves: board.push(move)
-                    else:
-                        result_text = "0-1" if is_white else "1-0"
-                        termination_reason = f"Illegal Move ({best_move_str})"
-                        game_over = True
-                except ValueError:
-                    result_text = "0-1" if is_white else "1-0"
-                    termination_reason = f"Invalid UCI ({best_move_str})"
-                    game_over = True
-            else:
+            time_left = (w_time if is_white else b_time) - real_elapsed
+            
+            if time_left <= 0 and self.cfg.time_control > 0:
                 result_text = "0-1" if is_white else "1-0"
-                termination_reason = "Engine Crash"
+                termination_reason = "Time Forfeit"
                 game_over = True
+            else:
+                # time is good, update clock and process move
+                if is_white: w_time = max(0, time_left + self.cfg.increment)
+                else: b_time = max(0, time_left + self.cfg.increment)
+
+                if best_move_str:
+                    try:
+                        move = chess.Move.from_uci(best_move_str)
+                        if move in board.legal_moves: board.push(move)
+                        else:
+                            result_text = "0-1" if is_white else "1-0"
+                            termination_reason = f"Illegal Move ({best_move_str})"
+                            game_over = True
+                    except ValueError:
+                        result_text = "0-1" if is_white else "1-0"
+                        termination_reason = f"Invalid UCI ({best_move_str})"
+                        game_over = True
+                else:
+                    result_text = "0-1" if is_white else "1-0"
+                    termination_reason = "Engine Crash"
+                    game_over = True
         
         if not result_text: result_text = board.result()
         
