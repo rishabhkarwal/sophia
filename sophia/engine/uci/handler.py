@@ -1,6 +1,7 @@
 import sys
 import traceback
 import time
+import copy
 
 from engine.board.fen_parser import load_from_fen
 from engine.board.move_exec import make_move, is_repetition
@@ -120,7 +121,9 @@ class UCI:
         self.engine.time_limit = int(time_limit)
         
         try:
-            best_move = self.engine.get_best_move(self.state, opponent_time, depth_limit, nodes_limit, (move_time is not None))
+            search_state = copy.deepcopy(self.state)
+
+            best_move = self.engine.get_best_move(search_state, opponent_time, depth_limit, nodes_limit, (move_time is not None))
             
             if isinstance(best_move, str): move_str = best_move
             elif best_move is not None: move_str = move_to_uci(best_move)

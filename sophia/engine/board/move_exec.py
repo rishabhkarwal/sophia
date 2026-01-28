@@ -8,7 +8,8 @@ from engine.core.constants import (
     CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
     A1, H1, A8, H8, E1, C1, G1, E8, C8, G8, F1, D1, F8, D8,
     MASK_SOURCE,
-    WP, BP, WR, BR, WK, BK,
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK,
     WHITE, BLACK,
     NORTH, SOUTH, SQUARE_TO_BB
 )
