@@ -76,10 +76,6 @@ class SearchEngine:
         # hard limit: stop immediately
         if elapsed >= self.hard_time_limit:
             raise TimeoutError("hard time limit exceeded")
-        
-        # soft limit: should stop at next opportunity  
-        if elapsed >= self.soft_time_limit:
-            raise TimeoutError("soft time limit exceeded")
     
     def _get_pv_line(self, state, max_depth=20):
         pv_moves = []

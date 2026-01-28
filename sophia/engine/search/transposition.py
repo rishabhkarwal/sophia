@@ -39,7 +39,7 @@ class TranspositionTable:
         if existing is None:
             self.entries_count += 1
 
-        if existing is None or depth >= existing.depth:
+        if existing is None or depth >= existing.depth or existing.key != key:
             self.table[index] = TTEntry(key, depth, score, flag, best_move)
         
     def probe(self, key: int) -> Optional[TTEntry]:
