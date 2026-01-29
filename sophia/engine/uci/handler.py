@@ -112,7 +112,7 @@ class UCI:
                 
             # network / execution overhead
             overhead = 200
-            time_limit = max(overhead, time_limit - overhead)
+            time_limit = max(overhead, min(time_limit - overhead, my_time - overhead))
 
         elif depth_limit is not None or nodes_limit is not None:
             time_limit = INFINITE_TIME # effectively
@@ -152,7 +152,7 @@ class UCI:
 
     def handle_position(self, args):
         if not args: return
-        
+
         moves_idx = -1
         if args[0] == 'startpos':
             fen_str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'

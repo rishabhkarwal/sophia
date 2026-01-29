@@ -34,8 +34,8 @@ def is_repetition(state: State):
         if state.history[i] == current_hash: count += 1
     
     # count is number of previous occurrences, current position is + 1
-    threefold = count >= 2 - 1 # taking away 1 to help detect draw
-    fivefold = count >= 4 - 1
+    threefold = count >= 2
+    fivefold = count >= 4
     
     return threefold, fivefold
 
@@ -82,10 +82,11 @@ def make_null_move(state: State):
     # store undo info on stack
     state.context_stack.append((old_ep, old_hash, old_last_moved))
     
-    ep_key = old_ep % 8 if old_ep != NULL else 8
-    state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
-    state.en_passant_square = NULL
-    state.hash ^= ZOBRIST_KEYS.en_passant[8]
+    if old_ep != NULL:
+        ep_key = old_ep % 8
+        state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
+    else:
+        state.hash ^= ZOBRIST_KEYS.en_passant[8]
     
     state.is_white = not state.is_white
     state.hash ^= ZOBRIST_KEYS.black_to_move

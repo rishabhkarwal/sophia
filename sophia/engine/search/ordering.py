@@ -17,6 +17,7 @@ class MoveOrdering:
     def __init__(self):
         self.killer_moves = [[None] * 2 for _ in range(MAX_DEPTH + 2)]
         self.history_table = [[0] * 64 for _ in range(64)]
+        self.history_counter = 0
         self.countermoves = [[None] * 64 for _ in range(64)]  # [from_sq][to_sq] -> countermove
     
     def store_killer(self, depth, move: int):
@@ -41,19 +42,15 @@ class MoveOrdering:
         bonus = depth * depth
         self.history_table[start][target] += bonus
         
-        # cap at max and apply gravity
         if self.history_table[start][target] > HISTORY_MAX:
-            self.history_table[start][target] = HISTORY_MAX
-        
-        # age all history entries periodically
-        self._age_history()
+            # only age when values get too large
+            self._age_history()
     
     def _age_history(self):
-        """Apply gravity to history scores to prevent saturation"""
+        """Halve ALL entries (faster aging strategy)"""
         for from_sq in range(64):
             for to_sq in range(64):
-                if self.history_table[from_sq][to_sq] > 0:
-                    self.history_table[from_sq][to_sq] = max(0, self.history_table[from_sq][to_sq] - HISTORY_GRAVITY)
+                self.history_table[i][j] //= 2
     
     def store_countermove(self, previous_move, current_move: int):
         """Store countermove: after opponent plays previous move, we play current move"""
