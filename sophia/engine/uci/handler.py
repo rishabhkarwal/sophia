@@ -61,7 +61,6 @@ class UCI:
     def handle_go(self, args):
         book_move = self.book.get_move(self.state)
         if book_move:
-            send_info_string(f"found book move: {book_move}")
             response = f'bestmove {book_move}'
             send_command(response)
             return response
@@ -152,6 +151,8 @@ class UCI:
         self.state = load_from_fen() 
 
     def handle_position(self, args):
+        if not args: return
+        
         moves_idx = -1
         if args[0] == 'startpos':
             fen_str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
