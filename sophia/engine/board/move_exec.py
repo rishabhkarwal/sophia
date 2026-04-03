@@ -87,6 +87,10 @@ def make_null_move(state: State):
         state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
     else:
         state.hash ^= ZOBRIST_KEYS.en_passant[8]
+
+    state.en_passant_square = NULL
+
+    state.hash ^= ZOBRIST_KEYS.en_passant[8]
     
     state.is_white = not state.is_white
     state.hash ^= ZOBRIST_KEYS.black_to_move

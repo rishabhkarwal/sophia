@@ -50,7 +50,7 @@ class MoveOrdering:
         """Halve ALL entries (faster aging strategy)"""
         for from_sq in range(64):
             for to_sq in range(64):
-                self.history_table[i][j] //= 2
+                self.history_table[from_sq][to_sq] //= 2
     
     def store_countermove(self, previous_move, current_move: int):
         """Store countermove: after opponent plays previous move, we play current move"""
@@ -134,6 +134,7 @@ class MoveOrdering:
     def clear(self):
         self.killer_moves = [[None] * 2 for _ in range(MAX_DEPTH + 2)]
         self.history_table = [[0] * 64 for _ in range(64)]
+        self.history_counter = 0
         self.countermoves = [[None] * 64 for _ in range(64)]
 
 # incremental move selection (pick next best without full sort)
