@@ -1,22 +1,39 @@
-from gui.tournament import Tournament
 from gui.config import Config
+from gui.coordinator import ParallelTournament
+from gui.sequential import SequentialTournament
 
 if __name__ == '__main__':
+    # ── mode ──────────────────────────────────────────
+    # 'tui' = parallel games with live ANSI dashboard
+    # 'gui' = sequential games with pygame board
+    mode = 'tui'
+
+    # ── engines ───────────────────────────────────────
     new = 'sophia/engine.sh'
     old = 'sophia/engine.sh'
 
-    n_bullet = 15
-    n_blitz = 20
-    n_rapid = 10
+    # ── rounds ────────────────────────────────────────
+    # each entry is (time_control_secs, increment_secs, total_games)
+    rounds = [
+        (1 * 60,  0, 10),     # bullet 1+0
+        (2 * 60,  1, 10),     # bullet 2+1
+        (3 * 60,  0, 10),     # blitz  3+0
+        (3 * 60,  2, 10),     # blitz  3+2
+        (5 * 60,  5,  6),     # rapid  5+5
+        (10 * 60, 1,  6),     # rapid  10+1
+    ]
 
-    bullet_1_0 = Config(engine_1_path=new, engine_2_path=old, time_control=1 * 60, increment=0, total_games=n_bullet) # 1 + 0
-    blitz_3_0 = Config(engine_1_path=new, engine_2_path=old, time_control=3 * 60, increment=0, total_games=n_blitz) # 3 + 0
-    rapid_5_5 = Config(engine_1_path=new, engine_2_path=old, time_control=5 * 60, increment=5, total_games=n_rapid) # 5 + 5
+    # ── run ───────────────────────────────────────────
+    for tc, inc, games in rounds:
+        config = Config(
+            engine_1_path=new,
+            engine_2_path=old,
+            time_control=tc,
+            increment=inc,
+            total_games=games,
+        )
 
-    bullet_2_1 = Config(engine_1_path=new, engine_2_path=old, time_control=2 * 60, increment=1, total_games=n_bullet) # 2 + 1
-    blitz_3_2 = Config(engine_1_path=new, engine_2_path=old, time_control=3 * 60, increment=2, total_games=n_blitz) # 3 + 2
-    rapid_10_1 = Config(engine_1_path=new, engine_2_path=old, time_control=10 * 60, increment=1, total_games=n_rapid) # 10 + 1
-
-    for settings in [bullet_1_0, blitz_3_0, rapid_5_5, bullet_2_1, blitz_3_2, rapid_10_1] * 2:
-        tourney = Tournament(settings)
-        tourney.run()
+        if mode == 'gui':
+            SequentialTournament(config).run()
+        else:
+            ParallelTournament(config).run()

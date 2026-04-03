@@ -2,7 +2,7 @@ from gui.console import log_error, log_info, log_engine, log_gui, Colour
 import os, sys, subprocess, time
 
 class Wrapper:
-    def __init__(self, path: str, version : str = '', console_colour=Colour.RESET):
+    def __init__(self, path: str, version : str = '', console_colour=Colour.RESET, quiet=False):
         self.path = os.path.abspath(path)
         self.name = path.split('/')[0] # folder name of engine
         if version != '': self.name += '.' + version
@@ -12,11 +12,11 @@ class Wrapper:
         self.draws = 0
         self.losses = 0
         self.colour = console_colour
+        self.quiet = quiet
 
     def start(self):
         if not os.path.exists(self.path):
-            log_error(f'Could not find engine file at: {self.path}')
-            sys.exit(1)
+            raise RuntimeError(f'Could not find engine file at: {self.path}')
 
         try:
             self.process = subprocess.Popen(
@@ -28,19 +28,18 @@ class Wrapper:
                 text=True,
                 bufsize=1
             )
- 
+
             if self.process.poll() is not None:
-                log_error(f'Error during startup')
-                sys.exit(1)
+                raise RuntimeError(f'Engine {self.name} failed during startup')
 
             self._send_cmd('uci')
             if not self._wait_for('uciok'):
-                log_error(f'Error during UCI handshake')
-                sys.exit(1)
+                raise RuntimeError(f'Engine {self.name} failed UCI handshake')
 
+        except RuntimeError:
+            raise
         except Exception as e:
-            log_error(f"Error starting engine {self.name}: {e}")
-            sys.exit(1)
+            raise RuntimeError(f"Error starting engine {self.name}: {e}")
 
     def stop(self):
         if self.process:
@@ -53,11 +52,11 @@ class Wrapper:
     def _send_cmd(self, cmd):
         if self.process and self.process.poll() is None:
             try:
-                log_gui(f"{cmd} -> {self.name}")
+                if not self.quiet: log_gui(f"{cmd} -> {self.name}")
                 self.process.stdin.write(f'{cmd}\n')
                 self.process.stdin.flush()
             except OSError:
-                log_error(f"Error sending command '{cmd}'")
+                if not self.quiet: log_error(f"Error sending command '{cmd}'")
 
     def _wait_for(self, target_text):
         if not self.process: return False
@@ -66,7 +65,7 @@ class Wrapper:
                 line = self.process.stdout.readline()
                 if not line: return False
                 line = line.strip()
-                log_engine(self.name, line, self.colour)
+                if not self.quiet: log_engine(self.name, line, self.colour)
                 if target_text in line: return True
             except OSError:
                 return False
@@ -87,11 +86,11 @@ class Wrapper:
             line = line.strip()
             
             if line.startswith('info'):
-                log_engine(self.name, line, self.colour)
+                if not self.quiet: log_engine(self.name, line, self.colour)
 
             if line.startswith('bestmove'):
-                log_engine(self.name, line, self.colour + Colour.BOLD)
-                print("") 
+                if not self.quiet: log_engine(self.name, line, self.colour + Colour.BOLD)
+                if not self.quiet: print("")
                 parts = line.split()
                 if len(parts) >= 2:
                     return parts[1]

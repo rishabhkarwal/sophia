@@ -9,18 +9,18 @@ class Palette:
     DARK_SQ = (26, 30, 35)
     BG = (26, 30, 35)
     PANEL_BG = (35, 40, 45)
-    
+
     TEXT_MAIN = (220, 220, 220)
     TEXT_DIM = (140, 140, 140)
     SCROLLBAR = (60, 60, 60)
     BORDER = (140, 143, 186)
-    
-    HIGHLIGHT = (245, 141, 85, 150) 
+
+    HIGHLIGHT = (245, 141, 85, 150)
     CLOCK_ACTIVE = (245, 141, 85)
     CLOCK_INACTIVE = (120, 120, 120)
-    
+
     MAT_ADVANTAGE = (245, 141, 85)
-    
+
     STAT_WIN = (100, 200, 100)
     STAT_DRAW = (160, 160, 160)
     STAT_LOSS = (200, 80, 80)
@@ -30,7 +30,7 @@ class Layout:
     PANEL_WIDTH = 340
     WINDOW_W = BOARD_CONTAINER_SIZE + PANEL_WIDTH
     WINDOW_H = BOARD_CONTAINER_SIZE
-    
+
     TARGET_PADDING = 30
     AVAILABLE_SPACE = BOARD_CONTAINER_SIZE - (TARGET_PADDING * 2)
     SQUARE_SIZE = AVAILABLE_SPACE // 8
@@ -38,12 +38,12 @@ class Layout:
     ACTUAL_BOARD_PIXELS = SQUARE_SIZE * 8
     OFFSET_X = (BOARD_CONTAINER_SIZE - ACTUAL_BOARD_PIXELS) // 2
     OFFSET_Y = (BOARD_CONTAINER_SIZE - ACTUAL_BOARD_PIXELS) // 2
-    
+
     ASSETS_DIR = 'gui/assets'
 
 UNICODE_PIECES = {
-    chess.BLACK: {'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔'},
-    chess.WHITE: {'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚'}
+    chess.BLACK: {'P': '\u2659', 'N': '\u2658', 'B': '\u2657', 'R': '\u2656', 'Q': '\u2655', 'K': '\u2654'},
+    chess.WHITE: {'P': '\u265f', 'N': '\u265e', 'B': '\u265d', 'R': '\u265c', 'Q': '\u265b', 'K': '\u265a'}
 }
 
 fps = 60
@@ -52,10 +52,10 @@ class GUI:
     def __init__(self):
         os.environ['SDL_VIDEO_CENTERED'] = '1'
         pygame.init()
-        pygame.display.set_caption("Chess Engine Tournament")
+        pygame.display.set_caption("Engine Tournament")
         self.screen = pygame.display.set_mode((Layout.WINDOW_W, Layout.WINDOW_H), pygame.NOFRAME)
         self.clock = pygame.time.Clock()
-        
+
         self.font_header = pygame.font.SysFont("Helvetica Neue", 24, bold=True)
         self.font_sub = pygame.font.SysFont("Helvetica Neue", 16)
         self.font_small = pygame.font.SysFont("Menlo", 14, bold=True)
@@ -67,7 +67,7 @@ class GUI:
         self.scroll_y = 0
         self.scroll_speed = 25
         self.max_scroll = 0
-        self.last_move_count = 0 
+        self.last_move_count = 0
 
         self.piece_images = {}
         self._load_assets()
@@ -75,7 +75,7 @@ class GUI:
     def _load_assets(self):
         pieces = ['p', 'n', 'b', 'r', 'q', 'k']
         colours = ['w', 'b']
-        
+
         if not os.path.isdir(Layout.ASSETS_DIR):
              log_error(f"Warning: Assets dir '{Layout.ASSETS_DIR}' not found.")
              return
@@ -107,27 +107,27 @@ class GUI:
             elif event.type == pygame.MOUSEWHEEL:
                 self.scroll_y -= event.y * self.scroll_speed
 
-    def draw(self, board: chess.Board, white_engine, black_engine, game_num, total, w_time, b_time, result_text=""):
+    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text=""):
         self.screen.fill(Palette.BG)
-        
+
         border_rect = (
-            Layout.OFFSET_X - 2, 
-            Layout.OFFSET_Y - 2, 
-            Layout.ACTUAL_BOARD_PIXELS + 4, 
+            Layout.OFFSET_X - 2,
+            Layout.OFFSET_Y - 2,
+            Layout.ACTUAL_BOARD_PIXELS + 4,
             Layout.ACTUAL_BOARD_PIXELS + 4
         )
         pygame.draw.rect(self.screen, Palette.BORDER, border_rect, width=2)
 
         self._draw_squares(board)
         self._draw_pieces(board)
-        
+
         w_mat_list, b_mat_list, w_score, b_score = self._calculate_material(board)
-        
+
         is_white_turn = (board.turn == chess.WHITE) and not result_text
         self._draw_panel(
-            white_engine, black_engine, 
-            game_num, total, 
-            w_time, b_time, 
+            white_engine, black_engine,
+            game_num, total,
+            w_time, b_time,
             is_white_turn, result_text,
             board,
             w_mat_list, b_mat_list, w_score, b_score
@@ -140,14 +140,14 @@ class GUI:
         full_set = {chess.PAWN: 8, chess.KNIGHT: 2, chess.BISHOP: 2, chess.ROOK: 2, chess.QUEEN: 1}
         w_current = {k: len(board.pieces(k, chess.WHITE)) for k in full_set}
         b_current = {k: len(board.pieces(k, chess.BLACK)) for k in full_set}
-        
+
         w_captures = []
         for pt, count in full_set.items():
             missing = count - b_current[pt]
             if missing > 0:
                 char = UNICODE_PIECES[chess.BLACK][chess.piece_symbol(pt).upper()]
                 w_captures.extend([char] * missing)
-                
+
         b_captures = []
         for pt, count in full_set.items():
             missing = count - w_current[pt]
@@ -155,27 +155,27 @@ class GUI:
                 char = UNICODE_PIECES[chess.WHITE][chess.piece_symbol(pt).upper()]
                 b_captures.extend([char] * missing)
 
-        sort_order = ['♟', '♞', '♝', '♜', '♛', '♙', '♘', '♗', '♖', '♕']
+        sort_order = ['\u265f', '\u265e', '\u265d', '\u265c', '\u265b', '\u2659', '\u2658', '\u2657', '\u2656', '\u2655']
         w_captures.sort(key=lambda x: sort_order.index(x) if x in sort_order else 0)
         b_captures.sort(key=lambda x: sort_order.index(x) if x in sort_order else 0)
 
         w_val = sum(len(board.pieces(pt, chess.WHITE)) * val for pt, val in {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}.items())
         b_val = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}.items())
-        
+
         return w_captures, b_captures, w_val, b_val
 
     def _draw_squares(self, board):
         last_move = board.peek() if board.move_stack else None
-        
+
         for r in range(8):
             for c in range(8):
                 color = Palette.LIGHT_SQ if (r + c) % 2 == 0 else Palette.DARK_SQ
 
                 x = Layout.OFFSET_X + (c * Layout.SQUARE_SIZE)
                 y = Layout.OFFSET_Y + (r * Layout.SQUARE_SIZE)
-                
+
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
-                
+
                 if last_move and (chess.square(c, 7-r) == last_move.from_square or chess.square(c, 7-r) == last_move.to_square):
                     s = pygame.Surface((Layout.SQUARE_SIZE, Layout.SQUARE_SIZE), pygame.SRCALPHA)
                     s.fill(Palette.HIGHLIGHT)
@@ -198,7 +198,7 @@ class GUI:
         x = Layout.BOARD_CONTAINER_SIZE + 15
         width = Layout.PANEL_WIDTH - 30
         y = 20
-   
+
         header = self.font_header.render(f"Game {game} / {total}", True, Palette.TEXT_MAIN)
         self.screen.blit(header, (x, y)); y += 50
 
@@ -208,15 +208,15 @@ class GUI:
         b_active = not white_active and not result
         self._draw_player_card(b_eng, b_time, x, y, "Black", b_active, b_cap, b_sc - w_sc)
         y += 90
-        
+
         pygame.draw.line(self.screen, Palette.SCROLLBAR, (x, y), (x + width, y), 1)
         y += 15
 
-        list_h = Layout.WINDOW_H - y - 60 
+        list_h = Layout.WINDOW_H - y - 60
         viewport = pygame.Rect(x, y, width, list_h)
         pygame.draw.rect(self.screen, Palette.PANEL_BG, viewport, border_radius=5)
         self._draw_move_list(board, viewport)
-        
+
         if result:
             self._draw_result(result)
 
@@ -236,9 +236,9 @@ class GUI:
         time_s = self._format_time(max(0, time_left))
         time_r = self.font_header.render(time_s, True, t_col)
         self.screen.blit(time_r, (x, y + 25))
-        
+
         cap_str = "".join(captures)
-        if len(cap_str) > 12: cap_str = cap_str[:11] + "..." 
+        if len(cap_str) > 12: cap_str = cap_str[:11] + "..."
         cap_surf = self.font_moves.render(cap_str, True, Palette.TEXT_DIM)
         self.screen.blit(cap_surf, (x, y + 55))
 
@@ -269,14 +269,14 @@ class GUI:
             ms = int((seconds - s) * 100)
             return f"{s:02}:{ms:02}"
 
-    def _draw_move_list(self, board, viewport: pygame.Rect):
+    def _draw_move_list(self, board, viewport):
         move_stack = board.move_stack
         line_height = 24
         total_lines = (len(move_stack) + 1) // 2
-        content_height = total_lines * line_height + 10 
-        
+        content_height = total_lines * line_height + 10
+
         self.max_scroll = max(0, content_height - viewport.height)
-        
+
         if len(move_stack) > self.last_move_count:
             self.last_move_count = len(move_stack)
             self.scroll_y = self.max_scroll
@@ -290,14 +290,13 @@ class GUI:
         start_num = 1
         for i in range(0, len(move_stack), 2):
             y_pos = (start_num - 1) * line_height + 5
-            num_str = f"{start_num}."
-            
+
             wm = move_stack[i]
             wp = temp_board.piece_at(wm.from_square)
             wsym = UNICODE_PIECES[chess.WHITE][wp.symbol().upper()]
             wt = f"{wsym} {temp_board.san(wm)}"
             temp_board.push(wm)
-            
+
             bt = ""
             if i + 1 < len(move_stack):
                 bm = move_stack[i + 1]
@@ -306,7 +305,7 @@ class GUI:
                 bt = f"{bsym} {temp_board.san(bm)}"
                 temp_board.push(bm)
 
-            surf.blit(self.font_moves.render(num_str, True, Palette.TEXT_DIM), (5, y_pos))
+            surf.blit(self.font_moves.render(f"{start_num}.", True, Palette.TEXT_DIM), (5, y_pos))
             surf.blit(self.font_moves.render(wt, True, Palette.TEXT_MAIN), (40, y_pos))
             surf.blit(self.font_moves.render(bt, True, Palette.TEXT_MAIN), (145, y_pos))
             start_num += 1
@@ -328,7 +327,7 @@ class GUI:
         y_pos = Layout.BOARD_CONTAINER_SIZE // 2 - 40
         self.screen.blit(bg, (0, y_pos))
         txt = self.font_header.render(text, True, (255, 100, 100))
-        tr = txt.get_rect(center=(Layout.BOARD_CONTAINER_SIZE//2, Layout.BOARD_CONTAINER_SIZE//2))
+        tr = txt.get_rect(center=(Layout.BOARD_CONTAINER_SIZE // 2, Layout.BOARD_CONTAINER_SIZE // 2))
         self.screen.blit(txt, tr)
 
     def quit(self):
