@@ -2,8 +2,8 @@ from gui.tournament import Tournament
 from gui.config import Config
 
 if __name__ == '__main__':
-    new = 'sophia/engine.bat'
-    old = 'sophia/engine.bat'
+    new = 'sophia/engine.sh'
+    old = 'sophia/engine.sh'
 
     n_bullet = 15
     n_blitz = 20

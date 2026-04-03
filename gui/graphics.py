@@ -56,11 +56,11 @@ class GUI:
         self.screen = pygame.display.set_mode((Layout.WINDOW_W, Layout.WINDOW_H), pygame.NOFRAME)
         self.clock = pygame.time.Clock()
         
-        self.font_header = pygame.font.SysFont("Segoe UI", 24, bold=True)
-        self.font_sub = pygame.font.SysFont("Segoe UI", 16)
-        self.font_small = pygame.font.SysFont("Consolas", 14, bold=True)
-        
-        self.font_moves = pygame.font.SysFont("Segoe UI Symbol", 17)
+        self.font_header = pygame.font.SysFont("Helvetica Neue", 24, bold=True)
+        self.font_sub = pygame.font.SysFont("Helvetica Neue", 16)
+        self.font_small = pygame.font.SysFont("Menlo", 14, bold=True)
+
+        self.font_moves = pygame.font.SysFont("Apple Symbols", 17)
         if not self.font_moves:
              self.font_moves = pygame.font.SysFont("Arial Unicode MS", 17)
 

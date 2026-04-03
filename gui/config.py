@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    engine_1_path: str = 'sophia/engine.bat'
-    engine_2_path: str = 'sophia/engine.bat'
+    engine_1_path: str = 'sophia/engine.sh'
+    engine_2_path: str = 'sophia/engine.sh'
 
     pgn_path: str = 'games.pgn'
     

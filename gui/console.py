@@ -1,6 +1,7 @@
 from datetime import datetime
 import os
 
+# enable ANSI escape codes on Windows
 if os.name == 'nt': os.system('')
 
 class Colour:
