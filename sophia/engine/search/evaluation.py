@@ -21,6 +21,8 @@ from engine.moves.precomputed import (
 )
 from engine.search.psqt import PSQTs
 from engine.core.zobrist import ZOBRIST_KEYS
+import engine.core.constants as _const
+from engine.uci.utils import send_info_string
 
 # piece values
 MG_VALUES = {PAWN: 82, KNIGHT: 337, BISHOP: 365, ROOK: 477, QUEEN: 1025, KING: 0}
@@ -47,17 +49,25 @@ class PawnHashTable:
         total_bytes = size_mb * 1024 * 1024
         self.size = total_bytes // 16
         self.table = [None] * self.size
-    
+        self.dbg_hits = 0
+        self.dbg_misses = 0
+
     def probe(self, pawn_hash):
         idx = pawn_hash % self.size
         entry = self.table[idx]
         if entry and entry[0] == pawn_hash:
+            if _const.DEBUG: self.dbg_hits += 1
             return entry[1]
+        if _const.DEBUG: self.dbg_misses += 1
         return None
-    
+
     def store(self, pawn_hash, score):
         idx = pawn_hash % self.size
         self.table[idx] = (pawn_hash, score)
+
+    def hit_rate(self):
+        total = self.dbg_hits + self.dbg_misses
+        return f"{self.dbg_hits}/{total} ({100*self.dbg_hits//total if total else 0}%)"
 
 def init_eval_tables():
     piece_type_map = {
@@ -329,99 +339,112 @@ def evaluate_king_endgame_activity(king_sq, enemy_pawns):
 def evaluate(state, pawn_hash_table=None):
     mg_phase = min(state.phase, MAX_PHASE)
     eg_phase = MAX_PHASE - mg_phase
-    
+
     base_score = (state.mg_score * mg_phase + state.eg_score * eg_phase) // MAX_PHASE
     evaluation = base_score
-    
+
     bitboards = state.bitboards
     all_pieces = bitboards[WHITE] | bitboards[BLACK]
     w_pawns = bitboards[WP]
     b_pawns = bitboards[BP]
-    
+
     # bishop pair
-    if bitboards[WB].bit_count() >= 2: evaluation += BISHOP_PAIR_BONUS
-    if bitboards[BB].bit_count() >= 2: evaluation -= BISHOP_PAIR_BONUS
+    dbg_bishop_pair = 0
+    if bitboards[WB].bit_count() >= 2:
+        evaluation += BISHOP_PAIR_BONUS
+        dbg_bishop_pair += BISHOP_PAIR_BONUS
+    if bitboards[BB].bit_count() >= 2:
+        evaluation -= BISHOP_PAIR_BONUS
+        dbg_bishop_pair -= BISHOP_PAIR_BONUS
 
     # pawn structure (WITH HASH TABLE CACHING)
     pawn_score = _evaluate_pawn_structure_cached(state, w_pawns, b_pawns, pawn_hash_table)
     evaluation += pawn_score
 
     # rook evaluation (open files, 7th rank, behind passed pawns)
+    dbg_rook = 0
     for colour, rook_piece in [(WHITE, WR), (BLACK, BR)]:
         score_adj = 0
         temp_rooks = bitboards[rook_piece]
-        
+
         while temp_rooks:
             sq = (temp_rooks & -temp_rooks).bit_length() - 1
             f = sq % 8
             rank = sq // 8
-            
-            # open / semi-open files
-            if not (w_pawns & FILE_MASKS[f]) and not (b_pawns & FILE_MASKS[f]): 
+
+            if not (w_pawns & FILE_MASKS[f]) and not (b_pawns & FILE_MASKS[f]):
                 score_adj += ROOK_OPEN_FILE
-            elif not ((b_pawns if colour == WHITE else w_pawns) & FILE_MASKS[f]): 
+            elif not ((b_pawns if colour == WHITE else w_pawns) & FILE_MASKS[f]):
                 score_adj += ROOK_SEMI_OPEN_FILE
-            
-            # rook on 7th rank
+
             if (colour == WHITE and rank == 6) or (colour == BLACK and rank == 1):
                 score_adj += ROOK_ON_SEVENTH_RANK
-            
-            # rook behind passed pawn
+
             passed_pawns = state.white_passed_pawns if colour == WHITE else state.black_passed_pawns
             if passed_pawns & FILE_MASKS[f]:
                 passed_sq = (passed_pawns & FILE_MASKS[f] & -(passed_pawns & FILE_MASKS[f])).bit_length() - 1
                 passed_rank = passed_sq // 8
                 if (colour == WHITE and rank < passed_rank) or (colour == BLACK and rank > passed_rank):
                     score_adj += ROOK_BEHIND_PASSED_PAWN
-            
+
             temp_rooks &= temp_rooks - 1
-        
-        evaluation += score_adj if colour == WHITE else -score_adj
+
+        adj = score_adj if colour == WHITE else -score_adj
+        evaluation += adj
+        dbg_rook += adj
 
     # knight outposts
+    dbg_knight_outpost = 0
     for colour, knight_piece in [(WHITE, WN), (BLACK, BN)]:
         temp_knights = bitboards[knight_piece]
         while temp_knights:
             sq = (temp_knights & -temp_knights).bit_length() - 1
-            
+
             outpost_mask = KNIGHT_OUTPOST_MASKS_W[sq] if colour == WHITE else KNIGHT_OUTPOST_MASKS_B[sq]
             enemy_pawns = b_pawns if colour == WHITE else w_pawns
-            
+
             if outpost_mask and not (enemy_pawns & outpost_mask):
                 if colour == WHITE:
                     pawn_def = (sq >= 8 and ((SQUARE_TO_BB[sq - 7] | SQUARE_TO_BB[sq - 9]) & w_pawns))
                 else:
                     pawn_def = (sq < 56 and ((SQUARE_TO_BB[sq + 7] | SQUARE_TO_BB[sq + 9]) & b_pawns))
-                
+
                 if pawn_def:
-                    evaluation += KNIGHT_OUTPOST_BONUS if colour == WHITE else -KNIGHT_OUTPOST_BONUS
-            
+                    bonus = KNIGHT_OUTPOST_BONUS if colour == WHITE else -KNIGHT_OUTPOST_BONUS
+                    evaluation += bonus
+                    dbg_knight_outpost += bonus
+
             temp_knights &= temp_knights - 1
 
     # simplified king safety (middlegame only, no expensive loops)
     w_king_sq = (bitboards[WK] & -bitboards[WK]).bit_length() - 1 if bitboards[WK] else NULL
     b_king_sq = (bitboards[BK] & -bitboards[BK]).bit_length() - 1 if bitboards[BK] else NULL
-    
-    # only in middlegame (phase > 60%)
+
+    dbg_king_safety = 0
     if mg_phase > int(MAX_PHASE * 0.6):
         if w_king_sq >= 0:
-            evaluation += evaluate_king_safety_simple(w_king_sq, w_pawns)
+            ks = evaluate_king_safety_simple(w_king_sq, w_pawns)
+            evaluation += ks
+            dbg_king_safety += ks
         if b_king_sq >= 0:
-            evaluation -= evaluate_king_safety_simple(b_king_sq, b_pawns)
+            ks = evaluate_king_safety_simple(b_king_sq, b_pawns)
+            evaluation -= ks
+            dbg_king_safety -= ks
 
     # mobility + trapped pieces (ONLY in middlegame when phase > 50%)
+    dbg_mobility = 0
     if mg_phase > int(MAX_PHASE * 0.5):
         for colour, pieces in [(WHITE, [(WN, KNIGHT_MOBILITY), (WB, BISHOP_MOBILITY), (WR, ROOK_MOBILITY), (WQ, QUEEN_MOBILITY)]),
                                (BLACK, [(BN, KNIGHT_MOBILITY), (BB, BISHOP_MOBILITY), (BR, ROOK_MOBILITY), (BQ, QUEEN_MOBILITY)])]:
             mobility_score = 0
-            
+
             for piece_key, mobility_bonus in pieces:
                 piece_bb = bitboards[piece_key]
                 piece_type = piece_key & ~WHITE
-                
+
                 while piece_bb:
                     sq = (piece_bb & -piece_bb).bit_length() - 1
-                    
+
                     if piece_type == KNIGHT:
                         legal_squares = (KNIGHT_ATTACKS[sq] & ~bitboards[colour]).bit_count()
                     elif piece_type == BISHOP:
@@ -432,60 +455,89 @@ def evaluate(state, pawn_hash_table=None):
                         b_att = BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]]
                         r_att = ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]]
                         legal_squares = ((b_att | r_att) & ~bitboards[colour]).bit_count()
-                    
-                    # trapped piece penalty
+
                     if legal_squares == 0:
                         mobility_score -= TRAPPED_PIECE_PENALTY
                     else:
                         mobility_score += legal_squares * mobility_bonus
-                    
+
                     piece_bb &= piece_bb - 1
-            
-            evaluation += mobility_score if colour == WHITE else -mobility_score
+
+            adj = mobility_score if colour == WHITE else -mobility_score
+            evaluation += adj
+            dbg_mobility += adj
 
     # piece batteries
+    dbg_battery = 0
     for colour in [WHITE, BLACK]:
         battery_score = 0
         rooks = bitboards[WR if colour == WHITE else BR]
         queen = bitboards[WQ if colour == WHITE else BQ]
-        
-        # rook battery
+
         for file in range(8):
             if (rooks & FILE_MASKS[file]).bit_count() >= 2:
                 battery_score += ROOK_BATTERY_BONUS
-        
-        # queen-rook battery
+
         if queen:
             queen_sq = (queen & -queen).bit_length() - 1
             queen_file = queen_sq % 8
-            
+
             if rooks & FILE_MASKS[queen_file]:
                 battery_score += QUEEN_ROOK_BATTERY_BONUS
-            
+
             bishop_pattern = BISHOP_TABLE[queen_sq][all_pieces & BISHOP_MASKS[queen_sq]]
             if rooks & bishop_pattern:
                 battery_score += QUEEN_ROOK_BATTERY_BONUS // 2
-        
-        evaluation += battery_score if colour == WHITE else -battery_score
+
+        adj = battery_score if colour == WHITE else -battery_score
+        evaluation += adj
+        dbg_battery += adj
 
     # trading behaviour
     trading_bonus = evaluate_trading_bonus(state, evaluation)
     evaluation += trading_bonus
 
     # endgame: king activity + mop up (only when phase < 40%)
+    dbg_king_activity = 0
+    dbg_mop_up = 0
     if mg_phase < int(MAX_PHASE * 0.4):
         score_no_mopup = evaluation if state.is_white else -evaluation
-        
+
         if w_king_sq >= 0:
             w_king_activity = evaluate_king_endgame_activity(w_king_sq, b_pawns)
             evaluation += w_king_activity
+            dbg_king_activity += w_king_activity
         if b_king_sq >= 0:
             b_king_activity = evaluate_king_endgame_activity(b_king_sq, w_pawns)
             evaluation -= b_king_activity
-        
-        if score_no_mopup > 200: 
-            evaluation += get_mop_up_score(state, state.is_white)
-        elif score_no_mopup < -200: 
-            evaluation += get_mop_up_score(state, not state.is_white)
-    
+            dbg_king_activity -= b_king_activity
+
+        if score_no_mopup > 200:
+            mop = get_mop_up_score(state, state.is_white)
+            evaluation += mop
+            dbg_mop_up = mop
+        elif score_no_mopup < -200:
+            mop = get_mop_up_score(state, not state.is_white)
+            evaluation += mop
+            dbg_mop_up = mop
+
+    if _const.DEBUG:
+        side = "w" if state.is_white else "b"
+        send_info_string(
+            f"[eval {side}] "
+            f"psqt={base_score:+d} "
+            f"pawns={pawn_score:+d} "
+            f"bishop_pair={dbg_bishop_pair:+d} "
+            f"rooks={dbg_rook:+d} "
+            f"knight_outpost={dbg_knight_outpost:+d} "
+            f"king_safety={dbg_king_safety:+d} "
+            f"mobility={dbg_mobility:+d} "
+            f"battery={dbg_battery:+d} "
+            f"trading={trading_bonus:+d} "
+            f"king_activity={dbg_king_activity:+d} "
+            f"mop_up={dbg_mop_up:+d} "
+            f"phase={mg_phase}/{MAX_PHASE} "
+            f"total={evaluation:+d}"
+        )
+
     return evaluation if state.is_white else -evaluation

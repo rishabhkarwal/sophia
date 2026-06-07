@@ -14,8 +14,9 @@ from engine.core.move import move_to_uci
 from engine.search.book import OpeningBook
 
 from engine.uci.tests import (
-    evaluate, perft, draw, win_percentage, move_accuracy, 
-    legal_moves, see
+    evaluate, perft, draw, win_percentage, move_accuracy,
+    legal_moves, see, eval_breakdown, debug_toggle, order_moves,
+    history_top, tt_stats,
 )
 
 class UCI:
@@ -50,13 +51,18 @@ class UCI:
         elif command == 'quit': sys.exit()
         
         # custom debug commands
-        elif command == 'd': draw(self.state)
-        elif command == 'eval': evaluate(self.state)
-        elif command == 'perft': perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
-        elif command == 'win': win_percentage(self.state)
-        elif command == 'acc': move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
-        elif command == 'legal': legal_moves(self.state)
-        elif command == 'see': see(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'd':      draw(self.state)
+        elif command == 'eval':   evaluate(self.state)
+        elif command == 'perft':  perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
+        elif command == 'win':    win_percentage(self.state)
+        elif command == 'acc':    move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'legal':  legal_moves(self.state)
+        elif command == 'see':    see(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'evalb':  eval_breakdown(self.state)
+        elif command == 'dbg':    debug_toggle()
+        elif command == 'order':  order_moves(self.state)
+        elif command == 'hist':   history_top(self.engine.ordering)
+        elif command == 'ttstats': tt_stats(self.engine.tt)
 
     def handle_go(self, args):
         book_move = self.book.get_move(self.state)

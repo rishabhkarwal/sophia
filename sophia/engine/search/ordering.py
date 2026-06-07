@@ -2,7 +2,7 @@ from engine.core.constants import (
     WHITE, INFINITY, NULL,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     MAX_DEPTH, MASK_SOURCE, PIECE_VALUES,
-    HISTORY_MAX, HISTORY_GRAVITY
+    HISTORY_MAX, HISTORY_GRAVITY,
 )
 from engine.core.move import (
     CAPTURE, EN_PASSANT, PROMOTION, 
@@ -47,7 +47,6 @@ class MoveOrdering:
             self._age_history()
     
     def _age_history(self):
-        """Halve ALL entries (faster aging strategy)"""
         for from_sq in range(64):
             for to_sq in range(64):
                 self.history_table[from_sq][to_sq] //= 2

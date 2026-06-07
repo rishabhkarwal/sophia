@@ -2,7 +2,7 @@ from engine.core.constants import (
     WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     PIECE_VALUES, MASK_SOURCE, SQUARE_TO_BB, NULL,
     WP, WN, WB, WR, WQ, WK,
-    BP, BN, BB, BR, BQ, BK
+    BP, BN, BB, BR, BQ, BK,
 )
 from engine.core.move import SHIFT_TARGET, EP_FLAG, SHIFT_FLAG
 from engine.moves.precomputed import (
@@ -117,20 +117,18 @@ def see_fast(state, move, threshold=0):
     """Fast SEE check: used for pruning decisions without full SEE calculation"""
     target_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
     victim = state.board[target_sq]
-    
-    # handle en passant
+
     flag = (move >> SHIFT_FLAG) & 0xF
     if flag == EP_FLAG:
         victim_value = PIECE_VALUES[PAWN]
     elif victim == NULL:
-        return threshold <= 0  # not a capture
+        return threshold <= 0
     else:
         victim_type = victim & ~WHITE
         victim_value = PIECE_VALUES[victim_type]
-    
-    # quick heuristic: if victim value >= threshold, likely good
+
+    # early exit: victim value alone clears threshold without checking recaptures
     if victim_value >= threshold:
         return True
-    
-    # otherwise do full SEE calculation
+
     return see_full(state, move) >= threshold

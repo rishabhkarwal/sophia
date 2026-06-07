@@ -1,25 +1,25 @@
-# Python
+# python
 venv/
 __pycache__/
 
 # macOS
 .DS_Store
 
-# Large data files
+# large data files
 sophia/engine/search/opening/*.bin
 sophia/engine/search/syzygy/*.rtbw
 sophia/engine/search/syzygy/*.rtbz
 
-# Lichess bot
+# lichess bot
 lichess/
 
-# Logs / temp / output
+# logs / temp / output
 *.pgn
 TEMP/
 
-# GUI piece sprites
+# gui piece sprites
 gui/assets/*.png
 gui/assets/*.svg
 
-# Reference docs
+# reference docs
 TODO.md

@@ -2,17 +2,21 @@ import time
 from engine.board.move_exec import make_move, unmake_move
 from engine.moves.generator import get_legal_moves, generate_pseudo_legal_moves
 from engine.moves.legality import is_in_check
-from engine.search.evaluation import evaluate as static_eval, MAX_PHASE
+from engine.search.evaluation import evaluate as static_eval, MAX_PHASE, PawnHashTable
 from engine.core.move import move_to_uci
 from engine.search.utils import state_to_board
 from engine.uci.utils import send_command
-from engine.search.see import see_full
+from engine.search.see import see_full, see_fast
+from engine.search.ordering import MoveOrdering, pick_next_move
+import engine.core.constants as _const
 from engine.core.constants import (
     WHITE, BLACK, NULL,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
-    PIECE_STR
+    PIECE_STR, PIECE_VALUES, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
+    MASK_SOURCE,
 )
+from engine.core.move import SHIFT_TARGET, SHIFT_FLAG, SQUARE_NAMES
 from math import exp
 
 def _get_score(state):
@@ -139,19 +143,52 @@ def legal_moves(state):
     send_command(f"moves: {' '.join(move_strings)}\n")
 
 def see(state, move_str):
-    """Runs SEE on a specific move"""
-    target_move_str = move_str.lower()
     moves = get_legal_moves(state)
-    
-    found_move = None
-    for move in moves:
-        if move_to_uci(move) == target_move_str:
-            found_move = move
-            break
-    
-    if found_move is None:
-        send_command(f"error: move '{target_move_str}' is not legal or valid")
-        return
+    found = next((m for m in moves if move_to_uci(m) == move_str.lower()), None)
+    if not found: send_command(f"error: move '{move_str.lower()}' is not legal\n"); return
+    send_command(f"see {move_str.lower()}: {see_full(state, found)}\n")
 
-    score = see_full(state, found_move)
-    send_command(f"see {target_move_str}: {score}\n")
+def eval_breakdown(state):
+    old = _const.DEBUG
+    _const.DEBUG = True
+    static_eval(state, PawnHashTable(4))
+    _const.DEBUG = old
+    send_command("")
+
+def debug_toggle():
+    _const.DEBUG = not _const.DEBUG
+    send_command(f"DEBUG = {_const.DEBUG}\n")
+
+def order_moves(state):
+    ordering = MoveOrdering()
+    scored = sorted(
+        [(ordering.get_move_score(m, None, None, state, 1, None, None), move_to_uci(m)) for m in get_legal_moves(state)],
+        reverse=True
+    )
+    send_command(f"Move ordering ({len(scored)} moves):")
+    for score, uci in scored: send_command(f"  {uci}  score={score}")
+    send_command("")
+
+def history_top(ordering, n=10):
+    entries = sorted(
+        [(ordering.history_table[f][t], f"{SQUARE_NAMES[f]}{SQUARE_NAMES[t]}")
+         for f in range(64) for t in range(64) if ordering.history_table[f][t] > 0],
+        reverse=True
+    )
+    send_command(f"Top {n} history entries:")
+    for val, sq in entries[:n]: send_command(f"  {sq}  {val}")
+    send_command("")
+
+def tt_stats(tt):
+    step = max(1, tt.size // min(tt.size, 100_000))
+    entries = [tt.table[i] for i in range(0, tt.size, step)]
+    exact = sum(1 for e in entries if e and e.flag == 0)
+    bound = sum(1 for e in entries if e and e.flag != 0)
+    empty = sum(1 for e in entries if e is None)
+    total = exact + bound + empty
+    send_command(f"TT stats (sampled {total} of {tt.size}):")
+    send_command(f"  hashfull: {tt.get_hashfull()}/1000")
+    send_command(f"  exact:    {exact} ({100*exact//total if total else 0}%)")
+    send_command(f"  bound:    {bound} ({100*bound//total if total else 0}%)")
+    send_command(f"  empty:    {empty} ({100*empty//total if total else 0}%)")
+    send_command("")
