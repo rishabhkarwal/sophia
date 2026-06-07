@@ -2,6 +2,7 @@ NAME = 'Sophia'
 AUTHOR = '@rishabhkarwal'
 
 DEBUG = False
+DEBUG_EVAL = False
 
 # null value for empty squares and pieces
 NULL = -1

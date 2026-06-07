@@ -56,9 +56,9 @@ class PawnHashTable:
         idx = pawn_hash % self.size
         entry = self.table[idx]
         if entry and entry[0] == pawn_hash:
-            if _const.DEBUG: self.dbg_hits += 1
+            if _const.DEBUG_EVAL: self.dbg_hits += 1
             return entry[1]
-        if _const.DEBUG: self.dbg_misses += 1
+        if _const.DEBUG_EVAL: self.dbg_misses += 1
         return None
 
     def store(self, pawn_hash, score):
@@ -521,7 +521,7 @@ def evaluate(state, pawn_hash_table=None):
             evaluation += mop
             dbg_mop_up = mop
 
-    if _const.DEBUG:
+    if _const.DEBUG_EVAL:
         side = "w" if state.is_white else "b"
         send_info_string(
             f"[eval {side}] "

@@ -149,15 +149,19 @@ def see(state, move_str):
     send_command(f"see {move_str.lower()}: {see_full(state, found)}\n")
 
 def eval_breakdown(state):
-    old = _const.DEBUG
-    _const.DEBUG = True
+    old = _const.DEBUG_EVAL
+    _const.DEBUG_EVAL = True
     static_eval(state, PawnHashTable(4))
-    _const.DEBUG = old
+    _const.DEBUG_EVAL = old
     send_command("")
 
 def debug_toggle():
     _const.DEBUG = not _const.DEBUG
     send_command(f"DEBUG = {_const.DEBUG}\n")
+
+def debug_eval_toggle():
+    _const.DEBUG_EVAL = not _const.DEBUG_EVAL
+    send_command(f"DEBUG_EVAL = {_const.DEBUG_EVAL}\n")
 
 def order_moves(state):
     ordering = MoveOrdering()

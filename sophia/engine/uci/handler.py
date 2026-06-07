@@ -15,7 +15,7 @@ from engine.search.book import OpeningBook
 
 from engine.uci.tests import (
     evaluate, perft, draw, win_percentage, move_accuracy,
-    legal_moves, see, eval_breakdown, debug_toggle, order_moves,
+    legal_moves, see, eval_breakdown, debug_toggle, debug_eval_toggle, order_moves,
     history_top, tt_stats,
 )
 
@@ -58,8 +58,9 @@ class UCI:
         elif command == 'acc':    move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
         elif command == 'legal':  legal_moves(self.state)
         elif command == 'see':    see(self.state, parts[1] if len(parts) > 1 else '0000')
-        elif command == 'evalb':  eval_breakdown(self.state)
-        elif command == 'dbg':    debug_toggle()
+        elif command == 'evalb':    eval_breakdown(self.state)
+        elif command == 'dbg':      debug_toggle()
+        elif command == 'dbgeval':  debug_eval_toggle()
         elif command == 'order':  order_moves(self.state)
         elif command == 'hist':   history_top(self.engine.ordering)
         elif command == 'ttstats': tt_stats(self.engine.tt)
