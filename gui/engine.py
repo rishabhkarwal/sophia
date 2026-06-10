@@ -18,6 +18,8 @@ class Wrapper:
         if not os.path.exists(self.path):
             raise RuntimeError(f'Could not find engine file at: {self.path}')
 
+        self.supports_ponder = False
+
         try:
             self.process = subprocess.Popen(
                 self.path,
@@ -33,7 +35,7 @@ class Wrapper:
                 raise RuntimeError(f'Engine {self.name} failed during startup')
 
             self._send_cmd('uci')
-            if not self._wait_for('uciok'):
+            if not self._wait_for_uciok():
                 raise RuntimeError(f'Engine {self.name} failed UCI handshake')
 
         except RuntimeError:
@@ -57,6 +59,20 @@ class Wrapper:
                 self.process.stdin.flush()
             except OSError:
                 if not self.quiet: log_error(f"Error sending command '{cmd}'")
+
+    def _wait_for_uciok(self):
+        if not self.process: return False
+        while True:
+            try:
+                line = self.process.stdout.readline()
+                if not line: return False
+                line = line.strip()
+                if not self.quiet: log_engine(self.name, line, self.colour)
+                if 'option name Ponder' in line:
+                    self.supports_ponder = True
+                if 'uciok' in line: return True
+            except OSError:
+                return False
 
     def _wait_for(self, target_text):
         if not self.process: return False

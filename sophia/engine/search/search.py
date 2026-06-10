@@ -1,4 +1,5 @@
 import time
+import threading
 import engine.core.constants as _const
 from engine.core.constants import (
     WHITE, BLACK, INFINITY,
@@ -68,6 +69,9 @@ class SearchEngine:
         self.hard_time_limit = 0.0
         self.soft_time_limit = 0.0
 
+        self.stop_flag = threading.Event()
+        self.ponder_move = None  # second move of PV from last completed depth
+
         # debug counters (only meaningful when DEBUG=True)
         # pruning: attempts vs cutoffs (rate = cutoffs/attempts tells you how effective each is)
         self.dbg_nmp_attempts     = 0  # nodes where NMP conditions were met
@@ -114,11 +118,14 @@ class SearchEngine:
         self.dbg_syzygy_hits      = 0  # successful syzygy probes
     
     def _check_time(self):
+        if self.stop_flag.is_set():
+            raise TimeoutError("stop")
+
         if self.nodes_limit is not None and self.nodes_searched >= self.nodes_limit:
             raise TimeoutError("nodes limit reached")
 
         elapsed = time.time() - self.start_time
-        
+
         # hard limit: stop immediately
         if elapsed >= self.hard_time_limit:
             raise TimeoutError("hard time limit exceeded")
@@ -172,6 +179,7 @@ class SearchEngine:
         self.nodes_searched = 0
         self.seldepth = 0
         self.tbhits = 0
+        self.ponder_move = None
         self.start_time = time.time()
         self.root_colour = state.is_white
 
@@ -300,16 +308,20 @@ class SearchEngine:
 
                 best_move_so_far = best_move
                 current_score = score
-                
+
                 self.depth_reached = current_depth
-                
+
                 elapsed = time.time() - self.start_time
                 nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
-                
+
                 score_str = _get_cp_score(score)
 
                 hashfull = self.tt.get_hashfull()
                 pv_string = self._get_pv_line(state, current_depth)
+
+                # cache ponder move from PV while TT is freshly populated
+                pv_parts = pv_string.split()
+                self.ponder_move = pv_parts[1] if len(pv_parts) >= 2 else None
 
                 send_command(f"info depth {current_depth} seldepth {self.seldepth} score {score_str} nodes {self.nodes_searched} nps {nps} time {int(elapsed * 1000)} hashfull {hashfull} tbhits {self.tbhits} pv {pv_string}")
 

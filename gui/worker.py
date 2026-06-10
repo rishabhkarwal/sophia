@@ -45,6 +45,10 @@ def play_game(assignment: GameAssignment) -> GameResult:
         result_text = ''
         termination = 'Unknown'
 
+        # ponder state
+        pondering_engine = None
+        ponder_predicted_move = None # uci move string it was told to ponder
+
         while not result_text:
             if board.is_game_over():
                 result_text = board.result()
@@ -58,16 +62,37 @@ def play_game(assignment: GameAssignment) -> GameResult:
 
             is_white = board.turn == chess.WHITE
             engine = engine_w if is_white else engine_b
+            opponent = engine_b if is_white else engine_w
 
             w_ms = int(w_time * 1000)
             b_ms = int(b_time * 1000)
             inc_ms = int(a.increment * 1000)
 
             turn_start = time.time()
-            engine._send_cmd(f'position fen {board.fen()}')
-            engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+
+            # resolve ponder if this engine was searching in the background last turn
+            current_move_uci = board.peek().uci() if board.move_stack else None
+            ponderhit = False
+            if pondering_engine is not None and pondering_engine is engine:
+                if ponder_predicted_move and current_move_uci == ponder_predicted_move:
+                    engine._send_cmd(f'ponderhit')
+                    ponderhit = True
+                else:
+                    engine._send_cmd('stop')
+                    _drain_bestmove(engine)
+                    engine._send_cmd(f'position fen {board.fen()}')
+                    engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+                pondering_engine = None
+                ponder_predicted_move = None
+            else:
+                engine._send_cmd(f'position fen {board.fen()}')
+                engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+
+            if ponderhit:
+                turn_start = time.time()
 
             best_move_str = None
+            ponder_move_str = None
             while True:
                 try:
                     line = engine.process.stdout.readline()
@@ -80,24 +105,23 @@ def play_game(assignment: GameAssignment) -> GameResult:
                     parts = line.split()
                     if len(parts) >= 2:
                         best_move_str = parts[1]
+                    if len(parts) >= 4 and parts[2] == 'ponder':
+                        ponder_move_str = parts[3]
                     break
 
             elapsed = time.time() - turn_start
 
-            # update clock
             if is_white:
                 w_time = max(0, w_time - elapsed + a.increment)
             else:
                 b_time = max(0, b_time - elapsed + a.increment)
 
-            # check time forfeit
             time_left = w_time if is_white else b_time
             if time_left <= 0 and a.time_control > 0:
                 result_text = '0-1' if is_white else '1-0'
                 termination = 'Time Forfeit'
                 break
 
-            # validate and apply move
             if best_move_str:
                 try:
                     move = chess.Move.from_uci(best_move_str)
@@ -116,11 +140,29 @@ def play_game(assignment: GameAssignment) -> GameResult:
                 termination = 'Engine Crash'
                 break
 
-            # send update to display
+            if ponder_move_str and engine.supports_ponder and not board.is_game_over():
+                w_ms2 = int(w_time * 1000)
+                b_ms2 = int(b_time * 1000)
+                # position must include ponder move as last move, not the fen after it
+                engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
+                engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
+                pondering_engine = engine
+                ponder_predicted_move = ponder_move_str
+                if not engine.quiet:
+                    from gui.console import log_info
+                    log_info(f'[ponder] started: engine={engine.name} predicting={ponder_move_str}')
+
             _send_update(a.game_id, len(board.move_stack), board.fen(),
                          w_time, b_time, w_name, b_name, 'playing', None)
 
-        # send final update
+        # clean up any active ponder
+        if pondering_engine is not None:
+            try:
+                pondering_engine._send_cmd('stop')
+                _drain_bestmove(pondering_engine)
+            except Exception:
+                pass
+
         _send_update(a.game_id, len(board.move_stack), board.fen(),
                      w_time, b_time, w_name, b_name, 'completed', result_text)
 
@@ -144,6 +186,18 @@ def play_game(assignment: GameAssignment) -> GameResult:
     finally:
         if engine_w: engine_w.stop()
         if engine_b: engine_b.stop()
+
+
+def _drain_bestmove(engine, timeout=3.0):
+    import select
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            line = engine.process.stdout.readline()
+            if not line: break
+            if line.strip().startswith('bestmove'): break
+        except OSError:
+            break
 
 
 def _send_update(game_id, move_num, fen, w_time, b_time, w_name, b_name, status, result):

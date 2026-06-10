@@ -1,15 +1,14 @@
 from gui.config import Config
 from gui.engine import Wrapper
-from gui.console import log, log_error, log_info, Colour
+from gui.console import log, log_error, log_info, log_engine, Colour
 from gui.graphics import GUI
 
 import chess
 import chess.pgn
 import datetime
+import select
 import time
 import threading
-import queue
-import os
 
 
 class SequentialTournament:
@@ -54,7 +53,9 @@ class SequentialTournament:
         game_over = False
         result_text = ""
         termination_reason = "Normal"
-        move_queue = queue.Queue()
+
+        pondering_engine = None # engine currently in go ponder (or None)
+        ponder_predicted_move = None # UCI move string it was told to ponder
 
         while not game_over:
             if board.is_game_over():
@@ -63,23 +64,53 @@ class SequentialTournament:
                 break
 
             is_white = (board.turn == chess.WHITE)
-            current_engine = white_engine if is_white else black_engine
+            engine = white_engine if is_white else black_engine
 
             w_ms = int(w_time * 1000)
             b_ms = int(b_time * 1000)
             inc_ms = int(self.cfg.increment * 1000)
 
-            search_thread = threading.Thread(
-                target=self._search_task,
-                args=(current_engine, board.fen(), w_ms, b_ms, inc_ms, move_queue),
-                daemon=True
-            )
-            search_thread.start()
+            # resolve ponder if this engine was searching in the background last turn
+            current_move_uci = board.peek().uci() if board.move_stack else None
+            ponderhit = False
+            if pondering_engine is not None and pondering_engine is engine:
+                if ponder_predicted_move and current_move_uci == ponder_predicted_move:
+                    engine._send_cmd('ponderhit')
+                    ponderhit = True
+                else:
+                    engine._send_cmd('stop')
+                    self._drain_bestmove(engine)
+                    engine._send_cmd(f'position fen {board.fen()}')
+                    engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+                pondering_engine = None
+                ponder_predicted_move = None
+            else:
+                engine._send_cmd(f'position fen {board.fen()}')
+                engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
 
             turn_start_time = time.time()
             best_move_str = None
+            ponder_move_str = None
+            bestmove_received = threading.Event()
 
-            while search_thread.is_alive():
+            def read_bestmove():
+                nonlocal best_move_str, ponder_move_str
+                while True:
+                    line = engine.process.stdout.readline()
+                    if not line: break
+                    line = line.strip()
+                    if not engine.quiet: log_engine(engine.name, line, engine.colour)
+                    if line.startswith('bestmove'):
+                        parts = line.split()
+                        if len(parts) >= 2: best_move_str = parts[1]
+                        if len(parts) >= 4 and parts[2] == 'ponder': ponder_move_str = parts[3]
+                        break
+                bestmove_received.set()
+
+            reader_thread = threading.Thread(target=read_bestmove, daemon=True)
+            reader_thread.start()
+
+            while not bestmove_received.is_set():
                 now = time.time()
                 elapsed = now - turn_start_time
 
@@ -99,11 +130,9 @@ class SequentialTournament:
                     game_number, self.cfg.total_games,
                     w_disp, b_disp, result_text
                 )
-                time.sleep(0.05)
+                bestmove_received.wait(timeout=0.05)
 
             if game_over: break
-
-            if not move_queue.empty(): best_move_str = move_queue.get()
 
             real_elapsed = time.time() - turn_start_time
             time_left = (w_time if is_white else b_time) - real_elapsed
@@ -119,7 +148,8 @@ class SequentialTournament:
                 if best_move_str:
                     try:
                         move = chess.Move.from_uci(best_move_str)
-                        if move in board.legal_moves: board.push(move)
+                        if move in board.legal_moves:
+                            board.push(move)
                         else:
                             result_text = "0-1" if is_white else "1-0"
                             termination_reason = f"Illegal Move ({best_move_str})"
@@ -132,6 +162,21 @@ class SequentialTournament:
                     result_text = "0-1" if is_white else "1-0"
                     termination_reason = "Engine Crash"
                     game_over = True
+
+            if not game_over and ponder_move_str and engine.supports_ponder and not board.is_game_over():
+                w_ms2 = int(w_time * 1000)
+                b_ms2 = int(b_time * 1000)
+                engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
+                engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
+                pondering_engine = engine
+                ponder_predicted_move = ponder_move_str
+
+        if pondering_engine is not None:
+            try:
+                pondering_engine._send_cmd('stop')
+                self._drain_bestmove(pondering_engine)
+            except Exception:
+                pass
 
         if not result_text: result_text = board.result()
 
@@ -173,12 +218,18 @@ class SequentialTournament:
         except Exception as e:
             log_error(f"Failed to save PGN: {e}")
 
-    def _search_task(self, engine, fen, w, b, inc, q):
-        try:
-            move = engine.get_best_move(fen, w, b, inc, inc)
-            q.put(move)
-        except Exception:
-            q.put(None)
+    def _drain_bestmove(self, engine, timeout=3.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                ready = select.select([engine.process.stdout], [], [], max(0, deadline - time.time()))
+                if not ready[0]:
+                    break
+                line = engine.process.stdout.readline()
+                if not line: break
+                if line.strip().startswith('bestmove'): break
+            except OSError:
+                break
 
     def _update_score(self, result, white, black):
         if "1-0" in result:

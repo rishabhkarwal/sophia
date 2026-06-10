@@ -5,7 +5,7 @@ from gui.sequential import SequentialTournament
 if __name__ == '__main__':
     # 'tui' = parallel games with live ANSI dashboard
     # 'gui' = sequential games with pygame board
-    mode = 'tui'
+    mode = 'gui'
 
     # engines
     new = 'TEMP/engine.sh'
