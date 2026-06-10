@@ -636,9 +636,10 @@ class SearchEngine:
         best_value = -INFINITY * 10
         best_move = None
         legal_moves_count = 0
-        
+        quiet_moves_tried = []
+
         time_pressure_mode = self.opponent_time_ms < 10_000
-        
+
         for i in range(len(moves)):
             pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
             move = moves[i]
@@ -657,6 +658,9 @@ class SearchEngine:
 
             if gives_check and time_pressure_mode:
                 is_interesting = True
+
+            if not is_interesting:
+                quiet_moves_tried.append(move)
 
             if do_futility and not is_interesting and not gives_check:
                 if _const.DEBUG: self.dbg_futility_skips += 1
@@ -722,6 +726,9 @@ class SearchEngine:
                 self.ordering.store_killer(depth, move)
                 self.ordering.store_history(move, depth)
                 self.ordering.store_countermove(previous_move, move)
+                for q in quiet_moves_tried:
+                    if q != move:
+                        self.ordering.apply_history_malus(q, depth)
                 return beta
             
             if value > best_value:

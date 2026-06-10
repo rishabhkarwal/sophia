@@ -37,19 +37,20 @@ class MoveOrdering:
 
         start = move & MASK_SOURCE
         target = (move >> SHIFT_TARGET) & MASK_SOURCE
-        
-        # butterfly history with aging
+
         bonus = depth * depth
-        self.history_table[start][target] += bonus
-        
-        if self.history_table[start][target] > HISTORY_MAX:
-            # only age when values get too large
-            self._age_history()
-    
-    def _age_history(self):
-        for from_sq in range(64):
-            for to_sq in range(64):
-                self.history_table[from_sq][to_sq] //= 2
+        self.history_table[start][target] += bonus - self.history_table[start][target] * bonus // HISTORY_MAX
+
+    def apply_history_malus(self, move: int, depth):
+        flag = (move >> SHIFT_FLAG) & 0xF
+        if (flag & CAPTURE) or (flag == EN_PASSANT) or (flag & PROMOTION):
+            return
+
+        start = move & MASK_SOURCE
+        target = (move >> SHIFT_TARGET) & MASK_SOURCE
+
+        bonus = depth * depth
+        self.history_table[start][target] -= bonus - self.history_table[start][target] * bonus // HISTORY_MAX
     
     def store_countermove(self, previous_move, current_move: int):
         """Store countermove: after opponent plays previous move, we play current move"""
