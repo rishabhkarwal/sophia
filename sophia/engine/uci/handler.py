@@ -159,8 +159,9 @@ class UCI:
         time_limit, opponent_time, depth_limit, nodes_limit, is_movetime, is_ponder = self._compute_time_limit(args)
 
         if not is_ponder:
-            book_move = self.book.get_move(self.state)
-            if book_move:
+            book_result = self.book.get_move(self.state)
+            if book_result:
+                book_move, book_pct = book_result
                 ponder_suffix = ''
                 try:
                     ponder_state = copy.deepcopy(self.state)
@@ -169,11 +170,12 @@ class UCI:
                         if move_to_uci(lm) == book_move:
                             make_move(ponder_state, lm)
                             break
-                    ponder_book_move = self.book.get_move(ponder_state)
-                    if ponder_book_move:
-                        ponder_suffix = f' ponder {ponder_book_move}'
+                    ponder_book_result = self.book.get_move(ponder_state)
+                    if ponder_book_result:
+                        ponder_suffix = f' ponder {ponder_book_result[0]}'
                 except Exception:
                     pass
+                send_command(f'info score cp {book_pct}')
                 send_command(f'bestmove {book_move}{ponder_suffix}')
                 return
 

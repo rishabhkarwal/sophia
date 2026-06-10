@@ -83,9 +83,10 @@ class OpeningBook:
 
             # select one move based on the combined normalised weights
             selected_move = random.choices(moves, weights=weights, k=1)[0]
+            selected_pct = int(move_weights[selected_move] / total_weight * 100)
             send_info_string(f"selected book move: {selected_move}")
 
-            return selected_move
+            return selected_move, selected_pct
 
         except Exception as e:
             send_info_string(f"book error: {e}")
