@@ -1,6 +1,7 @@
 import os
 import glob
 import random
+import time
 import chess
 import chess.polyglot
 
@@ -26,8 +27,9 @@ class OpeningBook:
         """Retrieves a weighted random move using normalised weights from all books"""
         if not self.books:
             return None
-            
+
         try:
+            t0 = time.perf_counter()
             board = state_to_board(state)
             
             # e.g. {'e2e4': 250.5, 'd2d4': 200.0}
@@ -84,9 +86,10 @@ class OpeningBook:
             # select one move based on the combined normalised weights
             selected_move = random.choices(moves, weights=weights, k=1)[0]
             selected_pct = int(move_weights[selected_move] / total_weight * 100)
+            elapsed_ms = max(1, int((time.perf_counter() - t0) * 1000))
             send_info_string(f"selected book move: {selected_move}")
 
-            return selected_move, selected_pct
+            return selected_move, selected_pct, len(move_weights), elapsed_ms
 
         except Exception as e:
             send_info_string(f"book error: {e}")

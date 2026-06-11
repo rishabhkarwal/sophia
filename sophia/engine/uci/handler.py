@@ -161,7 +161,8 @@ class UCI:
         if not is_ponder:
             book_result = self.book.get_move(self.state)
             if book_result:
-                book_move, book_pct = book_result
+                book_move, book_pct, book_nodes, book_ms = book_result
+                book_nps = max(1, int(book_nodes / (book_ms / 1000)))
                 ponder_suffix = ''
                 try:
                     ponder_state = copy.deepcopy(self.state)
@@ -175,7 +176,7 @@ class UCI:
                         ponder_suffix = f' ponder {ponder_book_result[0]}'
                 except Exception:
                     pass
-                send_command(f'info score cp {book_pct}')
+                send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
                 send_command(f'bestmove {book_move}{ponder_suffix}')
                 return
 
