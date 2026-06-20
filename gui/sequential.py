@@ -93,16 +93,25 @@ class SequentialTournament:
             turn_start_time = time.time()
             best_move_str = None
             ponder_move_str = None
+            live_pv_move = None
             bestmove_received = threading.Event()
 
             def read_bestmove():
-                nonlocal best_move_str, ponder_move_str
+                nonlocal best_move_str, ponder_move_str, live_pv_move
                 while True:
                     line = engine.process.stdout.readline()
                     if not line: break
                     line = line.strip()
                     if not engine.quiet: log_engine(engine.name, line, engine.colour)
-                    if line.startswith('bestmove'):
+                    if line.startswith('info') and ' pv ' in line:
+                        tokens = line.split()
+                        try:
+                            pv_idx = tokens.index('pv')
+                            if pv_idx + 1 < len(tokens):
+                                live_pv_move = tokens[pv_idx + 1]
+                        except ValueError:
+                            pass
+                    elif line.startswith('bestmove'):
                         parts = line.split()
                         if len(parts) >= 2: best_move_str = parts[1]
                         if len(parts) >= 4 and parts[2] == 'ponder': ponder_move_str = parts[3]
@@ -131,10 +140,16 @@ class SequentialTournament:
 
                 self.gui.handle_events()
                 ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
+                sf_arrow = None
+                if self.evaluator.available and self.evaluator.current_bestmove is not None:
+                    if self.evaluator.current_bestmove_fen == board.fen():
+                        sf_arrow = self.evaluator.current_bestmove
                 self.gui.draw(
                     board, white_engine, black_engine,
                     game_number, self.cfg.total_games,
-                    w_disp, b_disp, result_text, **ev,
+                    w_disp, b_disp, result_text,
+                    engine_arrow=live_pv_move, sf_arrow=sf_arrow,
+                    **ev,
                 )
                 bestmove_received.wait(timeout=0.05)
 
@@ -205,6 +220,7 @@ class SequentialTournament:
             self.gui.handle_events()
             ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
             self.gui.draw(board, white_engine, black_engine, game_number, self.cfg.total_games, w_time, b_time, result_text, **ev)
+
 
     def _save_pgn(self, board, white, black, result, termination, round_num):
         try:

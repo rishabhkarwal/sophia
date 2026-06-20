@@ -1,5 +1,6 @@
 import pygame
 import chess
+import math
 import os
 
 from gui.console import log_error
@@ -33,6 +34,10 @@ class Palette:
 
     RESULT_BG     = (50, 50, 50)
     RESULT_BORDER = (140, 190, 178)
+
+    ARROW_ENGINE  = (243, 181, 98,  170)  # amber — matches CLOCK_ACTIVE
+    ARROW_SF      = (100, 180, 160, 170)  # muted teal
+    ARROW_AGREE   = (140, 210, 130, 185)  # light green — both engines agree
 
 
 class Layout:
@@ -219,7 +224,7 @@ class GUI:
 
         self.screen.blit(lbl_surf, (lbl_x, lbl_y))
 
-    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None):
+    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None, engine_arrow=None, sf_arrow=None):
         if eval_cp is not None:
             self._last_eval_cp = eval_cp
         self._last_eval_mate = eval_mate
@@ -239,6 +244,28 @@ class GUI:
 
         self._draw_squares(board)
         self._draw_pieces(board)
+
+        # draw arrows after pieces so they overlay
+        engine_move = None
+        if engine_arrow is not None:
+            try:
+                engine_move = chess.Move.from_uci(engine_arrow)
+            except ValueError:
+                pass
+
+        both_agree = (
+            engine_move is not None and sf_arrow is not None and
+            engine_move.from_square == sf_arrow.from_square and
+            engine_move.to_square == sf_arrow.to_square
+        )
+
+        if both_agree:
+            self._draw_arrow(engine_move.from_square, engine_move.to_square, Palette.ARROW_AGREE)
+        else:
+            if sf_arrow is not None:
+                self._draw_arrow(sf_arrow.from_square, sf_arrow.to_square, Palette.ARROW_SF)
+            if engine_move is not None:
+                self._draw_arrow(engine_move.from_square, engine_move.to_square, Palette.ARROW_ENGINE)
 
         w_mat_list, b_mat_list, w_score, b_score = self._calculate_material(board)
 
@@ -321,7 +348,8 @@ class GUI:
         """draw board squares with highlight on the pending move's squares"""
         for r in range(8):
             for c in range(8):
-                color = Palette.LIGHT_SQ if (r + c) % 2 == 0 else Palette.DARK_SQ
+                is_light = (r + c) % 2 == 0
+                color = Palette.LIGHT_SQ if is_light else Palette.DARK_SQ
                 x = self._offset_x + c * Layout.SQUARE_SIZE
                 y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
@@ -334,6 +362,17 @@ class GUI:
                     h_surf = pygame.Surface((h_rect.width, h_rect.height), pygame.SRCALPHA)
                     h_surf.fill(Palette.HIGHLIGHT)
                     self.screen.blit(h_surf, h_rect.topleft)
+
+                if c == 0:
+                    lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
+                    lbl = self.font_role.render(str(8 - r), True, lbl_color)
+                    self.screen.blit(lbl, (x + 2, y + 2))
+
+                if r == 7:
+                    lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
+                    lbl = self.font_role.render(chr(ord('a') + c), True, lbl_color)
+                    self.screen.blit(lbl, (x + Layout.SQUARE_SIZE - lbl.get_width() - 2,
+                                           y + Layout.SQUARE_SIZE - lbl.get_height() - 2))
 
     def _calculate_material(self, board):
         full_set = {chess.PAWN: 8, chess.KNIGHT: 2, chess.BISHOP: 2, chess.ROOK: 2, chess.QUEEN: 1}
@@ -368,7 +407,8 @@ class GUI:
 
         for r in range(8):
             for c in range(8):
-                color = Palette.LIGHT_SQ if (r + c) % 2 == 0 else Palette.DARK_SQ
+                is_light = (r + c) % 2 == 0
+                color = Palette.LIGHT_SQ if is_light else Palette.DARK_SQ
                 x = self._offset_x + c * Layout.SQUARE_SIZE
                 y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
@@ -382,6 +422,19 @@ class GUI:
                         h_surf = pygame.Surface((h_rect.width, h_rect.height), pygame.SRCALPHA)
                         h_surf.fill(Palette.HIGHLIGHT)
                         self.screen.blit(h_surf, h_rect.topleft)
+
+                # rank number on left edge of a-file squares
+                if c == 0:
+                    lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
+                    lbl = self.font_role.render(str(8 - r), True, lbl_color)
+                    self.screen.blit(lbl, (x + 2, y + 2))
+
+                # file letter on bottom edge of rank-1 squares
+                if r == 7:
+                    lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
+                    lbl = self.font_role.render(chr(ord('a') + c), True, lbl_color)
+                    self.screen.blit(lbl, (x + Layout.SQUARE_SIZE - lbl.get_width() - 2,
+                                           y + Layout.SQUARE_SIZE - lbl.get_height() - 2))
 
     def _get_piece_img(self, key):
         img = self.piece_images.get(key)
@@ -401,6 +454,145 @@ class GUI:
                         x = self._offset_x + c * Layout.SQUARE_SIZE
                         y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                         self.screen.blit(img, (x, y))
+
+    def _sq_center(self, sq: chess.Square):
+        """return pixel center of a chess square"""
+        c = chess.square_file(sq)
+        r = 7 - chess.square_rank(sq)
+        cx = self._offset_x + c * Layout.SQUARE_SIZE + Layout.SQUARE_SIZE // 2
+        cy = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE + Layout.SQUARE_SIZE // 2
+        return cx, cy
+
+    @staticmethod
+    def _stamp_arrow_path(surf, path, shaft_hw, head_w, head_len, color):
+        """stamp a multi-segment arrow silhouette onto surf in color.
+
+        path: list of (x, y) floats — [tail, ...midpoints..., tip]
+        The final segment gets the arrowhead; all prior segments are plain shaft.
+        A circle cap is drawn at the tail and at every interior bend.
+        """
+        icolor = (int(color[0]), int(color[1]), int(color[2]))
+
+        pygame.draw.circle(surf, icolor, (int(path[0][0]), int(path[0][1])), int(shaft_hw))
+
+        for seg in range(len(path) - 1):
+            ax, ay = path[seg]
+            bx, by = path[seg + 1]
+            dx, dy = bx - ax, by - ay
+            seg_len = math.hypot(dx, dy)
+            if seg_len == 0:
+                continue
+            ux, uy = dx / seg_len, dy / seg_len
+            px, py = -uy, ux
+
+            is_last = (seg == len(path) - 2)
+
+            if is_last:
+                hbx = bx - ux * head_len
+                hby = by - uy * head_len
+                pts = [
+                    (ax  + px * shaft_hw,  ay  + py * shaft_hw),
+                    (hbx + px * shaft_hw,  hby + py * shaft_hw),
+                    (hbx + px * head_w,    hby + py * head_w),
+                    (bx,                   by),
+                    (hbx - px * head_w,    hby - py * head_w),
+                    (hbx - px * shaft_hw,  hby - py * shaft_hw),
+                    (ax  - px * shaft_hw,  ay  - py * shaft_hw),
+                ]
+            else:
+                pts = [
+                    (ax + px * shaft_hw, ay + py * shaft_hw),
+                    (bx + px * shaft_hw, by + py * shaft_hw),
+                    (bx - px * shaft_hw, by - py * shaft_hw),
+                    (ax - px * shaft_hw, ay - py * shaft_hw),
+                ]
+                pygame.draw.circle(surf, icolor, (int(bx), int(by)), int(shaft_hw))
+
+            pygame.draw.polygon(surf, icolor, [(int(x), int(y)) for x, y in pts])
+
+    @staticmethod
+    def _is_knight_move(from_sq: chess.Square, to_sq: chess.Square) -> bool:
+        df = abs(chess.square_file(to_sq) - chess.square_file(from_sq))
+        dr = abs(chess.square_rank(to_sq) - chess.square_rank(from_sq))
+        return (df == 1 and dr == 2) or (df == 2 and dr == 1)
+
+    @staticmethod
+    def _knight_corner(from_sq: chess.Square, to_sq: chess.Square, fx, fy, tx, ty) -> tuple:
+        """corner pixel for L-shaped knight path: long leg first"""
+        dr = abs(chess.square_rank(to_sq) - chess.square_rank(from_sq))
+        if dr == 2:
+            # long vertical leg first, then short horizontal leg
+            return (fx, ty)
+        else:
+            # long horizontal leg first, then short vertical leg
+            return (tx, fy)
+
+    def _draw_arrow(self, from_sq: chess.Square, to_sq: chess.Square, color):
+        """draw an inset arrow with a crisp same-hue glow outline"""
+        SQ = Layout.SQUARE_SIZE
+        HEAD_LEN = SQ * 0.28
+        HEAD_W   = SQ * 0.20
+        SHAFT_HW = SQ * 0.068
+        OW       = SQ * 0.016
+
+        fx, fy = self._sq_center(from_sq)
+        tx, ty = self._sq_center(to_sq)
+
+        if self._is_knight_move(from_sq, to_sq):
+            cx, cy = self._knight_corner(from_sq, to_sq, fx, fy, tx, ty)
+            INSET = SQ * 0.30
+            # inset tail along leg 1
+            d1x, d1y = cx - fx, cy - fy
+            l1 = math.hypot(d1x, d1y)
+            u1x, u1y = (d1x / l1, d1y / l1) if l1 else (0.0, 0.0)
+            sx, sy = fx + u1x * INSET, fy + u1y * INSET
+            # inset tip along leg 2
+            d2x, d2y = tx - cx, ty - cy
+            l2 = math.hypot(d2x, d2y)
+            u2x, u2y = (d2x / l2, d2y / l2) if l2 else (0.0, 0.0)
+            ex, ey = tx - u2x * INSET, ty - u2y * INSET
+            path = [(sx, sy), (cx, cy), (ex, ey)]
+        else:
+            dx, dy = tx - fx, ty - fy
+            arrow_len = math.hypot(dx, dy)
+            if arrow_len == 0:
+                return
+            ux, uy = dx / arrow_len, dy / arrow_len
+            INSET = min(SQ * 0.30, arrow_len * 0.18)
+            sx, sy = fx + ux * INSET, fy + uy * INSET
+            ex, ey = tx - ux * INSET, ty - uy * INSET
+            path = [(sx, sy), (ex, ey)]
+
+        r, g, b, a = color
+        glow_r = min(255, int(r + (255 - r) * 0.35))
+        glow_g = min(255, int(g + (255 - g) * 0.35))
+        glow_b = min(255, int(b + (255 - b) * 0.35))
+        GLOW_ALPHA = min(255, a + 20)
+
+        W = self._board_container_w
+        H = Layout.WINDOW_H
+
+        glow_temp = pygame.Surface((W, H), pygame.SRCALPHA)
+        STEPS = 12
+        for i in range(STEPS):
+            angle = 2 * math.pi * i / STEPS
+            ox = math.cos(angle) * OW
+            oy = math.sin(angle) * OW
+            offset_path = [(px + ox, py + oy) for px, py in path]
+            self._stamp_arrow_path(
+                glow_temp, offset_path,
+                SHAFT_HW + OW, HEAD_W + OW, HEAD_LEN,
+                (glow_r, glow_g, glow_b, 255),
+            )
+        glow_temp.set_alpha(GLOW_ALPHA)
+
+        fill_surf = pygame.Surface((W, H), pygame.SRCALPHA)
+        self._stamp_arrow_path(fill_surf, path, SHAFT_HW, HEAD_W, HEAD_LEN, color)
+
+        arrow_surf = pygame.Surface((W, H), pygame.SRCALPHA)
+        arrow_surf.blit(glow_temp, (0, 0))
+        arrow_surf.blit(fill_surf, (0, 0))
+        self.screen.blit(arrow_surf, (0, 0))
 
     def _draw_panel(self, w_eng, b_eng, game, total, w_time, b_time, white_active, result, board, w_cap, b_cap, w_sc, b_sc):
         panel_x = self._board_container_w

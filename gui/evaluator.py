@@ -45,6 +45,8 @@ class Evaluator:
         self._lock = threading.Lock()
         self.current_cp: int = 0
         self.current_mate: int | None = None
+        self.current_bestmove: chess.Move | None = None
+        self.current_bestmove_fen: str = ""
         self._running = True
 
         try:
@@ -81,6 +83,9 @@ class Evaluator:
                     self.current_mate = pov.mate()
                     cp = pov.score(mate_score=10000)
                     self.current_cp = cp if cp is not None else self.current_cp
+                    pv = info.get("pv")
+                    self.current_bestmove = pv[0] if pv else None
+                    self.current_bestmove_fen = fen
                     last_fen = fen
                 except Exception:
                     pass
