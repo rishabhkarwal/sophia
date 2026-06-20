@@ -14,6 +14,7 @@ from engine.core.constants import (
     KNIGHT_MOBILITY, BISHOP_MOBILITY, ROOK_MOBILITY, QUEEN_MOBILITY,
     WINNING_THRESHOLD, LOSING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE
 )
+from libc.stdlib cimport calloc, free
 from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, bishop_attacks, rook_attacks
 from engine.search.psqt import PSQTs
 from engine.core.zobrist cimport ZOBRIST_PIECES
@@ -48,26 +49,39 @@ KNIGHT_OUTPOST_MASKS_B = [0] * 64
 cdef unsigned long long KNIGHT_OUTPOST_MASKS_W_C[64]
 cdef unsigned long long KNIGHT_OUTPOST_MASKS_B_C[64]
 
-class PawnHashTable:
+cdef class PawnHashTable:
     def __init__(self, size_mb=16):
-        total_bytes = size_mb * 1024 * 1024
-        self.size = total_bytes // 16
-        self.table = [None] * self.size
+        cdef long long total_bytes, n
+        total_bytes = <long long>size_mb * 1024 * 1024
+        n = total_bytes // sizeof(PawnEntry)
+        if n < 1: n = 1
+        self.size = n
         self.dbg_hits = 0
         self.dbg_misses = 0
+        # calloc zero-initialises — key=0 means empty
+        self.table = <PawnEntry*>calloc(n, sizeof(PawnEntry))
+        if not self.table:
+            raise MemoryError(f"PawnHashTable: failed to allocate {size_mb} MB")
 
-    def probe(self, pawn_hash):
-        idx = pawn_hash % self.size
-        entry = self.table[idx]
-        if entry and entry[0] == pawn_hash:
+    def __dealloc__(self):
+        if self.table:
+            free(self.table)
+            self.table = NULL
+
+    cdef bint probe(self, unsigned long long key, int* out_score) noexcept:
+        cdef long long idx = <long long>(key % <unsigned long long>self.size)
+        cdef PawnEntry* slot = &self.table[idx]
+        if slot.key == key:
             if _const.DEBUG_EVAL: self.dbg_hits += 1
-            return entry[1]
+            out_score[0] = slot.score
+            return True
         if _const.DEBUG_EVAL: self.dbg_misses += 1
-        return None
+        return False
 
-    def store(self, pawn_hash, score):
-        idx = pawn_hash % self.size
-        self.table[idx] = (pawn_hash, score)
+    cdef void store(self, unsigned long long key, int score) noexcept:
+        cdef long long idx = <long long>(key % <unsigned long long>self.size)
+        self.table[idx].key   = key
+        self.table[idx].score = score
 
     def hit_rate(self):
         total = self.dbg_hits + self.dbg_misses
@@ -210,13 +224,15 @@ cdef int _evaluate_pawn_structure_cached(State state, unsigned long long w_pawns
                                           object pawn_hash_table) noexcept:
     cdef int pawn_score, sq, rank, f, w_count, b_count
     cdef unsigned long long pawn_hash, temp, w_on_file, b_on_file
+    cdef PawnHashTable pht = None
+    cdef int cached_score
 
     pawn_hash = get_pawn_hash(state)
 
-    if pawn_hash_table:
-        cached = pawn_hash_table.probe(pawn_hash)
-        if cached is not None:
-            return cached
+    if pawn_hash_table is not None:
+        pht = <PawnHashTable>pawn_hash_table
+        if pht.probe(pawn_hash, &cached_score):
+            return cached_score
 
     pawn_score = 0
 
@@ -253,8 +269,8 @@ cdef int _evaluate_pawn_structure_cached(State state, unsigned long long w_pawns
             if not (b_pawns & ADJACENT_FILE_MASKS[f]):
                 pawn_score += ISOLATED_PAWN_PENALTY * popcount(b_on_file)
 
-    if pawn_hash_table:
-        pawn_hash_table.store(pawn_hash, pawn_score)
+    if pht is not None:
+        pht.store(pawn_hash, pawn_score)
 
     return pawn_score
 
