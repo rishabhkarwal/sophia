@@ -41,8 +41,7 @@ from engine.search.transposition cimport TranspositionTable
 from engine.search.evaluation cimport evaluate
 from engine.search.evaluation import evaluate, PawnHashTable
 from engine.search.ordering import MoveOrdering
-from engine.search.ordering cimport MoveOrdering, pick_next_move, pick_next_move_list
-from engine.search.see cimport see_ge
+from engine.search.ordering cimport MoveOrdering, pick_next_move, pick_next_move_list, score_move_list
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
 from engine.search.utils import _get_cp_score
@@ -540,6 +539,8 @@ cdef class SearchEngine:
         cdef unsigned int tt_move, k1, k2, counter
         cdef object best_move
         cdef MoveList moves
+        cdef int scores[256]
+        cdef signed char see_cache[256]
         cdef unsigned int quiet_moves_tried[256]
         cdef int quiet_moves_count
         cdef unsigned int q
@@ -746,13 +747,15 @@ cdef class SearchEngine:
 
         time_pressure_mode = self.opponent_time_ms < 10_000
 
+        score_move_list(&moves, scores, see_cache, state, self.ordering, tt_move, counter, depth, k1, k2)
+
         for i in range(moves.count):
-            pick_next_move_list(&moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
+            pick_next_move_list(&moves, scores, see_cache, i)
             move = moves.moves[i]
 
             see_ok = True
             if (move & _CAPTURE_FLAG) and depth <= 6:
-                see_ok = see_ge(state, move, 0)
+                see_ok = see_cache[i] == 1
 
             old_phase = state.phase
             make_move(state, move)
@@ -881,6 +884,8 @@ cdef class SearchEngine:
         cdef bint in_check, legal_moves_found
         cdef unsigned int tt_move
         cdef MoveList moves
+        cdef int scores[256]
+        cdef signed char see_cache[256]
         cdef unsigned long long key
         # TT probe output
         cdef short         _tt_depth
@@ -942,13 +947,15 @@ cdef class SearchEngine:
 
         legal_moves_found = False
 
+        score_move_list(&moves, scores, see_cache, state, self.ordering, tt_move, 0, 0, 0, 0)
+
         for i in range(moves.count):
-            pick_next_move_list(&moves, i, state, self.ordering, tt_move, 0, 0, 0, 0)
+            pick_next_move_list(&moves, scores, see_cache, i)
             move = moves.moves[i]
 
             if not in_check and (move & _CAPTURE_FLAG):
                 if _const.DEBUG: self.dbg_qsee_tests += 1
-                if not see_ge(state, move, 0):
+                if see_cache[i] != 1:
                     if _const.DEBUG: self.dbg_qsee_prunes += 1
                     continue
 

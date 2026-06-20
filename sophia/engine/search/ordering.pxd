@@ -20,6 +20,9 @@ cdef class MoveOrdering:
 cpdef int pick_next_move(list moves, int start_index, State state, MoveOrdering ordering,
                          unsigned int tt_move, unsigned int counter,
                          int depth, unsigned int k1, unsigned int k2) noexcept
-cdef int pick_next_move_list(MoveList* moves, int start_index, State state, MoveOrdering ordering,
-                             unsigned int tt_move, unsigned int counter,
-                             int depth, unsigned int k1, unsigned int k2) noexcept
+cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
+                          State state, MoveOrdering ordering,
+                          unsigned int tt_move, unsigned int counter,
+                          int depth, unsigned int k1, unsigned int k2) noexcept
+cdef int pick_next_move_list(MoveList* moves, int* scores, signed char* see_cache,
+                             int start_index) noexcept

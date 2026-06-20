@@ -216,28 +216,108 @@ cpdef int pick_next_move(list moves, int start_index, State state, MoveOrdering 
     return start_index
 
 
-cdef int pick_next_move_list(MoveList* moves, int start_index, State state, MoveOrdering ordering,
-                             unsigned int tt_move, unsigned int counter,
-                             int depth, unsigned int k1, unsigned int k2) noexcept:
-    cdef int best_idx, i, n, best_score, score
+cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
+                          State state, MoveOrdering ordering,
+                          unsigned int tt_move, unsigned int counter,
+                          int depth, unsigned int k1, unsigned int k2) noexcept:
+    cdef int i, n, flag, start, target, base_score
+    cdef int piece, piece_type
+    cdef int attacker, victim, victim_val, attacker_val, mvv_lva
+    cdef bint is_cap, see_ok
+    cdef unsigned int move
+
+    n = moves.count
+    for i in range(n):
+        move = moves.moves[i]
+        see_cache[i] = -1
+
+        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
+        is_cap = (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION)
+
+        if is_cap:
+            start  = move & _MASK_SOURCE
+            target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+            attacker = state.board[start]
+            victim   = state.board[target]
+
+            if victim == _NULL_SQ:
+                if flag == _EN_PASSANT:
+                    victim_val = _PIECE_VALUES[_PAWN]
+                else:
+                    victim_val = 0
+            else:
+                victim_val = _PIECE_VALUES[victim & ~_WHITE]
+
+            attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
+            mvv_lva = 10 * victim_val - attacker_val
+
+            see_ok = see_ge(state, move, 0)
+            see_cache[i] = 1 if see_ok else 0
+
+            if move == tt_move:
+                scores[i] = _SCORE_TT_MOVE
+            elif see_ok:
+                scores[i] = _SCORE_GOOD_CAP + mvv_lva
+            else:
+                scores[i] = _SCORE_BAD_CAP + mvv_lva
+            continue
+
+        if move == tt_move:
+            scores[i] = _SCORE_TT_MOVE
+            continue
+        if move == counter and counter != 0:
+            scores[i] = _SCORE_COUNTER_MOVE
+            continue
+        if move == k1 and k1 != 0:
+            scores[i] = _SCORE_KILLER_1
+            continue
+        if move == k2 and k2 != 0:
+            scores[i] = _SCORE_KILLER_2
+            continue
+
+        start  = move & _MASK_SOURCE
+        target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+        base_score = ordering.history_table[start][target]
+
+        if state.last_moved_piece_sq >= 0 and state.last_moved_piece_sq == start:
+            piece = state.board[start]
+            if piece != _NULL_SQ:
+                piece_type = piece & ~_WHITE
+                if piece_type != _KING:
+                    base_score += _REPETITION_PENALTY
+
+        scores[i] = base_score
+
+
+cdef int pick_next_move_list(MoveList* moves, int* scores, signed char* see_cache,
+                             int start_index) noexcept:
+    cdef int best_idx, i, n, best_score, tmp_score
     cdef unsigned int tmp
+    cdef signed char tmp_see
 
     n = moves.count
     if start_index >= n:
         return -1
 
     best_idx   = start_index
-    best_score = ordering.get_move_score(moves.moves[start_index], tt_move, counter, state, depth, k1, k2)
+    best_score = scores[start_index]
 
     for i in range(start_index + 1, n):
-        score = ordering.get_move_score(moves.moves[i], tt_move, counter, state, depth, k1, k2)
-        if score > best_score:
-            best_score = score
+        if scores[i] > best_score:
+            best_score = scores[i]
             best_idx   = i
 
     if best_idx != start_index:
         tmp = moves.moves[start_index]
         moves.moves[start_index] = moves.moves[best_idx]
         moves.moves[best_idx] = tmp
+
+        tmp_score = scores[start_index]
+        scores[start_index] = scores[best_idx]
+        scores[best_idx] = tmp_score
+
+        tmp_see = see_cache[start_index]
+        see_cache[start_index] = see_cache[best_idx]
+        see_cache[best_idx] = tmp_see
 
     return start_index
