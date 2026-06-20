@@ -15,10 +15,12 @@ from engine.core.constants import (
     MASK_SOURCE,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
-    NORTH, SOUTH, SQUARE_TO_BB
+    NORTH, SOUTH
 )
-from engine.core.zobrist import ZOBRIST_KEYS
-from engine.search.evaluation import MG_TABLE, EG_TABLE, PHASE_WEIGHTS
+from engine.core.zobrist cimport (
+    ZOBRIST_PIECES, ZOBRIST_CASTLING, ZOBRIST_EN_PASSANT, ZOBRIST_BLACK_TO_MOVE
+)
+from engine.search.evaluation cimport MG_TABLE_C, EG_TABLE_C, PHASE_WEIGHTS_C
 
 # c-level constants to avoid python attribute lookups in hot path
 cdef int _NULL_VAL = _NULL
@@ -42,6 +44,10 @@ cdef int _MASK_SOURCE = MASK_SOURCE
 cdef int _SHIFT_TARGET = SHIFT_TARGET
 cdef int _SHIFT_FLAG = SHIFT_FLAG
 cdef int _SP1 = SPECIAL_1, _SP0 = SPECIAL_0
+
+
+cdef inline unsigned long long _sq_bb(int sq) noexcept:
+    return (<unsigned long long>1) << sq
 
 
 def is_repetition(State state):
@@ -109,13 +115,13 @@ def make_null_move(State state):
 
     state.context_stack.append((old_ep, old_hash, old_last_moved))
 
-    if old_ep != _NULL_VAL: state.hash ^= ZOBRIST_KEYS.en_passant[old_ep % 8]
-    else:                   state.hash ^= ZOBRIST_KEYS.en_passant[8]
+    if old_ep != _NULL_VAL: state.hash ^= ZOBRIST_EN_PASSANT[old_ep % 8]
+    else:                   state.hash ^= ZOBRIST_EN_PASSANT[8]
 
     state.en_passant_square = _NULL_VAL
-    state.hash ^= ZOBRIST_KEYS.en_passant[8]
+    state.hash ^= ZOBRIST_EN_PASSANT[8]
     state.is_white = not state.is_white
-    state.hash ^= ZOBRIST_KEYS.black_to_move
+    state.hash ^= ZOBRIST_BLACK_TO_MOVE
     state.last_moved_piece_sq = _NULL_VAL
 
 
@@ -165,15 +171,15 @@ cpdef void make_move(State state, unsigned int move):
         ep_offset   = _NORTH
         enemy_pawn  = _WP
 
-    start_mask  = SQUARE_TO_BB[start_sq]
-    target_mask = SQUARE_TO_BB[target_sq]
+    start_mask  = _sq_bb(start_sq)
+    target_mask = _sq_bb(target_sq)
 
-    state.mg_score -= MG_TABLE[moving_piece][start_sq]
-    state.eg_score -= EG_TABLE[moving_piece][start_sq]
+    state.mg_score -= MG_TABLE_C[moving_piece][start_sq]
+    state.eg_score -= EG_TABLE_C[moving_piece][start_sq]
 
     state.bitboards[moving_piece] &= ~start_mask
     state.bitboards[active_bb]    &= ~start_mask
-    state.hash ^= ZOBRIST_KEYS.pieces[moving_piece][start_sq]
+    state.hash ^= ZOBRIST_PIECES[moving_piece][start_sq]
     state.board[start_sq] = _NULL_VAL
 
     captured_piece = _NULL_VAL
@@ -184,16 +190,16 @@ cpdef void make_move(State state, unsigned int move):
         if (move >> _SHIFT_FLAG) == (_EP_FLAG >> _SHIFT_FLAG):
             capture_sq     = target_sq + ep_offset
             captured_piece = enemy_pawn
-            cap_mask       = SQUARE_TO_BB[capture_sq]
+            cap_mask       = _sq_bb(capture_sq)
 
             state.bitboards[captured_piece] &= ~cap_mask
             state.bitboards[opponent_bb]    &= ~cap_mask
-            state.hash ^= ZOBRIST_KEYS.pieces[captured_piece][capture_sq]
+            state.hash ^= ZOBRIST_PIECES[captured_piece][capture_sq]
             state.board[capture_sq] = _NULL_VAL
 
-            state.mg_score -= MG_TABLE[captured_piece][capture_sq]
-            state.eg_score -= EG_TABLE[captured_piece][capture_sq]
-            state.phase    -= PHASE_WEIGHTS[captured_piece]
+            state.mg_score -= MG_TABLE_C[captured_piece][capture_sq]
+            state.eg_score -= EG_TABLE_C[captured_piece][capture_sq]
+            state.phase    -= PHASE_WEIGHTS_C[captured_piece]
             state.piece_counts[captured_piece] -= 1
 
             if not state.is_white:
@@ -206,11 +212,11 @@ cpdef void make_move(State state, unsigned int move):
 
             state.bitboards[captured_piece] &= ~target_mask
             state.bitboards[opponent_bb]    &= ~target_mask
-            state.hash ^= ZOBRIST_KEYS.pieces[captured_piece][target_sq]
+            state.hash ^= ZOBRIST_PIECES[captured_piece][target_sq]
 
-            state.mg_score -= MG_TABLE[captured_piece][target_sq]
-            state.eg_score -= EG_TABLE[captured_piece][target_sq]
-            state.phase    -= PHASE_WEIGHTS[captured_piece]
+            state.mg_score -= MG_TABLE_C[captured_piece][target_sq]
+            state.eg_score -= EG_TABLE_C[captured_piece][target_sq]
+            state.phase    -= PHASE_WEIGHTS_C[captured_piece]
             state.piece_counts[captured_piece] -= 1
 
             # update passed pawn tracking if a pawn was captured
@@ -228,8 +234,8 @@ cpdef void make_move(State state, unsigned int move):
         promo_piece_type = promo_types[promo_idx]
 
         promoted_piece = (moving_piece & _WHITE) | promo_piece_type
-        state.phase   -= PHASE_WEIGHTS[moving_piece]
-        state.phase   += PHASE_WEIGHTS[promoted_piece]
+        state.phase   -= PHASE_WEIGHTS_C[moving_piece]
+        state.phase   += PHASE_WEIGHTS_C[promoted_piece]
         target_piece   = promoted_piece
 
         state.piece_counts[moving_piece]   -= 1
@@ -242,12 +248,12 @@ cpdef void make_move(State state, unsigned int move):
     else:
         target_piece = moving_piece
 
-    state.mg_score += MG_TABLE[target_piece][target_sq]
-    state.eg_score += EG_TABLE[target_piece][target_sq]
+    state.mg_score += MG_TABLE_C[target_piece][target_sq]
+    state.eg_score += EG_TABLE_C[target_piece][target_sq]
 
     state.bitboards[target_piece] |= target_mask
     state.bitboards[active_bb]    |= target_mask
-    state.hash ^= ZOBRIST_KEYS.pieces[target_piece][target_sq]
+    state.hash ^= ZOBRIST_PIECES[target_piece][target_sq]
     state.board[target_sq] = target_piece
 
     # update passed pawn tracking for pawn push
@@ -271,24 +277,24 @@ cpdef void make_move(State state, unsigned int move):
         elif target_sq == _G8: r_from = _H8; r_to = _F8
         elif target_sq == _C8: r_from = _A8; r_to = _D8
 
-        state.bitboards[rook]     &= ~SQUARE_TO_BB[r_from]
-        state.bitboards[rook]     |=  SQUARE_TO_BB[r_to]
-        state.bitboards[active_bb] &= ~SQUARE_TO_BB[r_from]
-        state.bitboards[active_bb] |=  SQUARE_TO_BB[r_to]
+        state.bitboards[rook]     &= ~_sq_bb(r_from)
+        state.bitboards[rook]     |=  _sq_bb(r_to)
+        state.bitboards[active_bb] &= ~_sq_bb(r_from)
+        state.bitboards[active_bb] |=  _sq_bb(r_to)
 
-        state.hash ^= ZOBRIST_KEYS.pieces[rook][r_from]
-        state.hash ^= ZOBRIST_KEYS.pieces[rook][r_to]
+        state.hash ^= ZOBRIST_PIECES[rook][r_from]
+        state.hash ^= ZOBRIST_PIECES[rook][r_to]
 
         state.board[r_from] = _NULL_VAL
         state.board[r_to]   = rook
 
-        state.mg_score -= MG_TABLE[rook][r_from]
-        state.eg_score -= EG_TABLE[rook][r_from]
-        state.mg_score += MG_TABLE[rook][r_to]
-        state.eg_score += EG_TABLE[rook][r_to]
+        state.mg_score -= MG_TABLE_C[rook][r_from]
+        state.eg_score -= EG_TABLE_C[rook][r_from]
+        state.mg_score += MG_TABLE_C[rook][r_to]
+        state.eg_score += EG_TABLE_C[rook][r_to]
 
     # castling rights update
-    state.hash ^= ZOBRIST_KEYS.castling[state.castling_rights]
+    state.hash ^= ZOBRIST_CASTLING[state.castling_rights]
 
     if start_sq == _A1 or target_sq == _A1: state.castling_rights &= ~_CWQ
     if start_sq == _H1 or target_sq == _H1: state.castling_rights &= ~_CWK
@@ -297,11 +303,11 @@ cpdef void make_move(State state, unsigned int move):
     if start_sq == _E1: state.castling_rights &= ~(_CWK | _CWQ)
     if start_sq == _E8: state.castling_rights &= ~(_CBK | _CBQ)
 
-    state.hash ^= ZOBRIST_KEYS.castling[state.castling_rights]
+    state.hash ^= ZOBRIST_CASTLING[state.castling_rights]
 
     # en-passant hash update
     ep_key = old_ep % 8 if old_ep != _NULL_VAL else 8
-    state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
+    state.hash ^= ZOBRIST_EN_PASSANT[ep_key]
 
     state.en_passant_square = _NULL_VAL
 
@@ -309,7 +315,7 @@ cpdef void make_move(State state, unsigned int move):
         state.en_passant_square = (start_sq + target_sq) // 2
 
     ep_key = state.en_passant_square % 8 if state.en_passant_square != _NULL_VAL else 8
-    state.hash ^= ZOBRIST_KEYS.en_passant[ep_key]
+    state.hash ^= ZOBRIST_EN_PASSANT[ep_key]
 
     if piece_type == _PAWN or (move & _CAP_FLAG):
         state.halfmove_clock = 0
@@ -321,7 +327,7 @@ cpdef void make_move(State state, unsigned int move):
 
     state.last_moved_piece_sq = target_sq
     state.is_white = not state.is_white
-    state.hash ^= ZOBRIST_KEYS.black_to_move
+    state.hash ^= ZOBRIST_BLACK_TO_MOVE
 
     state.history.append(old_hash)
     state.context_stack.append((
@@ -381,8 +387,8 @@ cpdef void unmake_move(State state, unsigned int move):
     start_sq  = move & _MASK_SOURCE
     target_sq = (move >> _SHIFT_TARGET) & _MASK_SOURCE
 
-    start_mask  = SQUARE_TO_BB[start_sq]
-    target_mask = SQUARE_TO_BB[target_sq]
+    start_mask  = _sq_bb(start_sq)
+    target_mask = _sq_bb(target_sq)
 
     target_piece = state.board[target_sq]
 
@@ -416,10 +422,10 @@ cpdef void unmake_move(State state, unsigned int move):
             elif target_sq == _G8: r_from = _H8; r_to = _F8
             elif target_sq == _C8: r_from = _A8; r_to = _D8
 
-            state.bitboards[rook]      &= ~SQUARE_TO_BB[r_to]
-            state.bitboards[rook]      |=  SQUARE_TO_BB[r_from]
-            state.bitboards[active_bb] &= ~SQUARE_TO_BB[r_to]
-            state.bitboards[active_bb] |=  SQUARE_TO_BB[r_from]
+            state.bitboards[rook]      &= ~_sq_bb(r_to)
+            state.bitboards[rook]      |=  _sq_bb(r_from)
+            state.bitboards[active_bb] &= ~_sq_bb(r_to)
+            state.bitboards[active_bb] |=  _sq_bb(r_from)
 
             state.board[r_to]   = _NULL_VAL
             state.board[r_from] = rook
@@ -430,8 +436,8 @@ cpdef void unmake_move(State state, unsigned int move):
         if (move >> _SHIFT_FLAG) == (_EP_FLAG >> _SHIFT_FLAG):
             ep_offset  = _SOUTH if state.is_white else _NORTH
             capture_sq = target_sq + ep_offset
-            state.bitboards[captured_piece] |= SQUARE_TO_BB[capture_sq]
-            state.bitboards[opponent_bb]    |= SQUARE_TO_BB[capture_sq]
+            state.bitboards[captured_piece] |= _sq_bb(capture_sq)
+            state.bitboards[opponent_bb]    |= _sq_bb(capture_sq)
             state.board[capture_sq] = captured_piece
         else:
             state.bitboards[captured_piece] |= target_mask

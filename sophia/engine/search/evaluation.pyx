@@ -16,7 +16,7 @@ from engine.core.constants import (
 )
 from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, bishop_attacks, rook_attacks
 from engine.search.psqt import PSQTs
-from engine.core.zobrist import ZOBRIST_KEYS
+from engine.core.zobrist cimport ZOBRIST_PIECES
 import engine.core.constants as _const
 from engine.uci.utils import send_info_string
 from engine.board.state cimport State
@@ -33,14 +33,20 @@ MAX_PHASE = 4 * PHASE_INC[KNIGHT] + 4 * PHASE_INC[BISHOP] + 4 * PHASE_INC[ROOK] 
 MG_TABLE = [[0] * 64 for _ in range(16)]
 EG_TABLE = [[0] * 64 for _ in range(16)]
 PHASE_WEIGHTS = [0] * 16
+cdef int MG_TABLE_C[16][64]
+cdef int EG_TABLE_C[16][64]
+cdef int PHASE_WEIGHTS_C[16]
 
 PASSED_PAWN_MASKS = [[0] * 64 for _ in range(2)]
+cdef unsigned long long PASSED_PAWN_MASKS_C[2][64]
 cdef unsigned long long FILE_MASKS[8]
 cdef unsigned long long ADJACENT_FILE_MASKS[8]
 
 # knight outpost masks
 KNIGHT_OUTPOST_MASKS_W = [0] * 64
 KNIGHT_OUTPOST_MASKS_B = [0] * 64
+cdef unsigned long long KNIGHT_OUTPOST_MASKS_W_C[64]
+cdef unsigned long long KNIGHT_OUTPOST_MASKS_B_C[64]
 
 class PawnHashTable:
     def __init__(self, size_mb=16):
@@ -82,17 +88,23 @@ def init_eval_tables():
 
         w_piece = WHITE | p_type
         PHASE_WEIGHTS[w_piece] = phase_inc
+        PHASE_WEIGHTS_C[w_piece] = phase_inc
 
         b_piece = BLACK | p_type
         PHASE_WEIGHTS[b_piece] = phase_inc
+        PHASE_WEIGHTS_C[b_piece] = phase_inc
 
         for sq in range(64):
             flipped_sq = sq ^ FLIP_BOARD
             MG_TABLE[w_piece][sq] = mg_val + mg_psqt[flipped_sq]
             EG_TABLE[w_piece][sq] = eg_val + eg_psqt[flipped_sq]
+            MG_TABLE_C[w_piece][sq] = MG_TABLE[w_piece][sq]
+            EG_TABLE_C[w_piece][sq] = EG_TABLE[w_piece][sq]
 
             MG_TABLE[b_piece][sq] = -(mg_val + mg_psqt[sq])
             EG_TABLE[b_piece][sq] = -(eg_val + eg_psqt[sq])
+            MG_TABLE_C[b_piece][sq] = MG_TABLE[b_piece][sq]
+            EG_TABLE_C[b_piece][sq] = EG_TABLE[b_piece][sq]
 
     for f in range(8):
         mask = FILE_A << f
@@ -109,16 +121,22 @@ def init_eval_tables():
             for f_adj in range(max(0, file - 1), min(8, file + 2)):
                 w_mask |= SQUARE_TO_BB[r * 8 + f_adj]
         PASSED_PAWN_MASKS[WHITE][sq] = w_mask
+        PASSED_PAWN_MASKS_C[WHITE][sq] = w_mask
 
         b_mask = 0
         for r in range(rank - 1, -1, -1):
             for f_adj in range(max(0, file - 1), min(8, file + 2)):
                 b_mask |= SQUARE_TO_BB[r * 8 + f_adj]
         PASSED_PAWN_MASKS[BLACK][sq] = b_mask
+        PASSED_PAWN_MASKS_C[BLACK][sq] = b_mask
 
         # knight outpost masks
-        if 4 <= rank <= 6: KNIGHT_OUTPOST_MASKS_W[sq] = PASSED_PAWN_MASKS[WHITE][sq]
-        if 2 <= rank <= 4: KNIGHT_OUTPOST_MASKS_B[sq] = PASSED_PAWN_MASKS[BLACK][sq]
+        if 4 <= rank <= 6:
+            KNIGHT_OUTPOST_MASKS_W[sq] = PASSED_PAWN_MASKS[WHITE][sq]
+            KNIGHT_OUTPOST_MASKS_W_C[sq] = PASSED_PAWN_MASKS_C[WHITE][sq]
+        if 2 <= rank <= 4:
+            KNIGHT_OUTPOST_MASKS_B[sq] = PASSED_PAWN_MASKS[BLACK][sq]
+            KNIGHT_OUTPOST_MASKS_B_C[sq] = PASSED_PAWN_MASKS_C[BLACK][sq]
 
 init_eval_tables()
 
@@ -136,13 +154,13 @@ def calculate_initial_score(state):
         if not bb: continue
 
         count = bb.bit_count()
-        phase += PHASE_WEIGHTS[p_idx] * count
+        phase += PHASE_WEIGHTS_C[p_idx] * count
 
         while bb:
             lsb = bb & -bb
             sq = lsb.bit_length() - 1
-            mg += MG_TABLE[p_idx][sq]
-            eg += EG_TABLE[p_idx][sq]
+            mg += MG_TABLE_C[p_idx][sq]
+            eg += EG_TABLE_C[p_idx][sq]
             bb &= bb - 1
 
     return mg, eg, phase
@@ -158,7 +176,7 @@ def calculate_initial_passed_pawns(state):
     while temp:
         lsb = temp & -temp
         sq = lsb.bit_length() - 1
-        if not (PASSED_PAWN_MASKS[WHITE][sq] & b_pawns):
+        if not (PASSED_PAWN_MASKS_C[WHITE][sq] & b_pawns):
             w_passed |= lsb
         temp &= temp - 1
 
@@ -166,7 +184,7 @@ def calculate_initial_passed_pawns(state):
     while temp:
         lsb = temp & -temp
         sq = lsb.bit_length() - 1
-        if not (PASSED_PAWN_MASKS[BLACK][sq] & w_pawns):
+        if not (PASSED_PAWN_MASKS_C[BLACK][sq] & w_pawns):
             b_passed |= lsb
         temp &= temp - 1
 
@@ -179,12 +197,12 @@ cdef unsigned long long get_pawn_hash(State state) noexcept:
     while temp:
         sq   = lsb(temp)
         temp &= temp - 1
-        h   ^= ZOBRIST_KEYS.pieces[WP][sq]
+        h   ^= ZOBRIST_PIECES[WP][sq]
     temp = state.bitboards[BP]
     while temp:
         sq   = lsb(temp)
         temp &= temp - 1
-        h   ^= ZOBRIST_KEYS.pieces[BP][sq]
+        h   ^= ZOBRIST_PIECES[BP][sq]
     return h
 
 cdef int _evaluate_pawn_structure_cached(State state, unsigned long long w_pawns,
@@ -475,7 +493,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     temp_knights = state.bitboards[WN]
     while temp_knights:
         sq = lsb(temp_knights)
-        outpost_mask = KNIGHT_OUTPOST_MASKS_W[sq]
+        outpost_mask = KNIGHT_OUTPOST_MASKS_W_C[sq]
         if outpost_mask and not (b_pawns & outpost_mask):
             if sq >= 8 and ((SQUARE_TO_BB[sq - 7] | SQUARE_TO_BB[sq - 9]) & w_pawns):
                 evaluation += KNIGHT_OUTPOST_BONUS
@@ -485,7 +503,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     temp_knights = state.bitboards[BN]
     while temp_knights:
         sq = lsb(temp_knights)
-        outpost_mask = KNIGHT_OUTPOST_MASKS_B[sq]
+        outpost_mask = KNIGHT_OUTPOST_MASKS_B_C[sq]
         if outpost_mask and not (w_pawns & outpost_mask):
             if sq < 56 and ((SQUARE_TO_BB[sq + 7] | SQUARE_TO_BB[sq + 9]) & b_pawns):
                 evaluation -= KNIGHT_OUTPOST_BONUS

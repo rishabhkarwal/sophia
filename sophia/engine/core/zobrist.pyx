@@ -24,6 +24,29 @@ def init_zobrist():
 
 ZOBRIST_KEYS = ZobristKeys(*init_zobrist())
 
+cdef unsigned long long ZOBRIST_PIECES[16][64]
+cdef unsigned long long ZOBRIST_CASTLING[16]
+cdef unsigned long long ZOBRIST_EN_PASSANT[9]
+cdef unsigned long long ZOBRIST_BLACK_TO_MOVE = <unsigned long long>ZOBRIST_KEYS.black_to_move
+
+
+cdef void init_zobrist_c_tables():
+    cdef int piece, sq, idx
+
+    for piece in range(16):
+        for sq in range(64):
+            ZOBRIST_PIECES[piece][sq] = <unsigned long long>ZOBRIST_KEYS.pieces[piece][sq]
+
+    for idx in range(16):
+        ZOBRIST_CASTLING[idx] = <unsigned long long>ZOBRIST_KEYS.castling[idx]
+
+    for idx in range(9):
+        ZOBRIST_EN_PASSANT[idx] = <unsigned long long>ZOBRIST_KEYS.en_passant[idx]
+
+
+init_zobrist_c_tables()
+
+
 def compute_hash(state) -> int:
     h = 0
 
