@@ -1,0 +1,6 @@
+cdef unsigned long long KNIGHT_ATTACKS[64]
+cdef unsigned long long KING_ATTACKS[64]
+cdef unsigned long long WHITE_PAWN_ATTACKS[64]
+cdef unsigned long long BLACK_PAWN_ATTACKS[64]
+cdef unsigned long long BISHOP_MASKS[64]
+cdef unsigned long long ROOK_MASKS[64]

@@ -140,7 +140,7 @@ def play_game(assignment: GameAssignment) -> GameResult:
                 termination = 'Engine Crash'
                 break
 
-            if ponder_move_str and engine.supports_ponder and not board.is_game_over():
+            if False and ponder_move_str and engine.supports_ponder and not board.is_game_over():
                 w_ms2 = int(w_time * 1000)
                 b_ms2 = int(b_time * 1000)
                 # position must include ponder move as last move, not the fen after it
@@ -193,6 +193,8 @@ def _drain_bestmove(engine, timeout=3.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
+            ready = select.select([engine.process.stdout], [], [], max(0, deadline - time.time()))
+            if not ready[0]: break
             line = engine.process.stdout.readline()
             if not line: break
             if line.strip().startswith('bestmove'): break

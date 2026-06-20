@@ -1,7 +1,6 @@
 import sys
 import traceback
 import time
-import copy
 import threading
 
 from engine.board.fen_parser import load_from_fen
@@ -27,12 +26,10 @@ class UCI:
         self.book = OpeningBook()
 
         self._ponder_thread = None
-        self._ponder_best_move = None
-        self._ponder_result_lock = threading.Lock()
-        self._ponder_bestmove_sent = False
-
-        # args saved from go ponder so ponderhit can reuse them
-        self._ponder_go_args = None
+        self._ponder_lock = threading.Lock()
+        # result stored by _run_ponder; emitted only by ponderhit/stop
+        self._ponder_result = None
+        self._ponder_args = None
 
     def run(self):
         while True:
@@ -41,9 +38,7 @@ class UCI:
                 if not line: break
                 line = line.strip()
                 if not line: continue
-
                 self.parse_input(line.split())
-
             except Exception:
                 send_info_string(f"error: {traceback.format_exc()}")
                 continue
@@ -51,7 +46,6 @@ class UCI:
     def parse_input(self, parts):
         command = parts[0]
 
-        # standard UCI commands
         if command == 'uci': self.handle_uci()
         elif command == 'isready': send_command('readyok')
         elif command == 'ucinewgame': self.handle_new_game()
@@ -61,23 +55,21 @@ class UCI:
         elif command == 'ponderhit': self.handle_ponderhit()
         elif command == 'quit': sys.exit()
 
-        # custom debug commands
-        elif command == 'd':      draw(self.state)
-        elif command == 'eval':   evaluate(self.state)
-        elif command == 'perft':  perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
-        elif command == 'win':    win_percentage(self.state)
-        elif command == 'acc':    move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
-        elif command == 'legal':  legal_moves(self.state)
-        elif command == 'see':    see(self.state, parts[1] if len(parts) > 1 else '0000')
-        elif command == 'evalb':    eval_breakdown(self.state)
-        elif command == 'dbg':      debug_toggle()
-        elif command == 'dbgeval':  debug_eval_toggle()
-        elif command == 'order':  order_moves(self.state)
-        elif command == 'hist':   history_top(self.engine.ordering)
+        elif command == 'd':       draw(self.state)
+        elif command == 'eval':    evaluate(self.state)
+        elif command == 'perft':   perft(self.state, int(parts[1]) if len(parts) > 1 else 1)
+        elif command == 'win':     win_percentage(self.state)
+        elif command == 'acc':     move_accuracy(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'legal':   legal_moves(self.state)
+        elif command == 'see':     see(self.state, parts[1] if len(parts) > 1 else '0000')
+        elif command == 'evalb':   eval_breakdown(self.state)
+        elif command == 'dbg':     debug_toggle()
+        elif command == 'dbgeval': debug_eval_toggle()
+        elif command == 'order':   order_moves(self.state)
+        elif command == 'hist':    history_top(self.engine.ordering)
         elif command == 'ttstats': tt_stats(self.engine.tt)
 
     def _compute_time_limit(self, args):
-        """Parse go args and return (time_limit_ms, opponent_time_ms, depth_limit, nodes_limit, is_movetime, is_ponder)."""
         w_time = None
         b_time = None
         w_inc = 0
@@ -126,9 +118,31 @@ class UCI:
 
         return int(time_limit), opponent_time, depth_limit, nodes_limit, (move_time is not None), is_ponder
 
-    def _run_ponder_search(self, search_state, opponent_time):
-        self.engine.time_limit = INFINITE_TIME
+    def _stop_ponder(self):
+        """Signal ponder thread to stop and wait for it. Does NOT emit bestmove."""
+        if self._ponder_thread is not None:
+            if self._ponder_thread.is_alive():
+                self.engine.stop_flag.set()
+                self._ponder_thread.join(timeout=5.0)
+            self._ponder_thread = None
 
+    def _book_ponder(self, state, book_move_uci, legal_moves_list):
+        """Look up book move for the position after book_move_uci is played."""
+        try:
+            ponder_state = state.clone()
+            for lm in legal_moves_list:
+                if move_to_uci(lm) == book_move_uci:
+                    make_move(ponder_state, lm)
+                    break
+            result = self.book.get_move(ponder_state)
+            if result:
+                return result[0]
+        except Exception:
+            pass
+        return None
+
+    def _run_ponder(self, search_state, opponent_time):
+        """background ponder search — stores result but does NOT emit bestmove"""
         try:
             best_move = self.engine.get_best_move(search_state, opponent_time, None, None, False)
 
@@ -140,115 +154,127 @@ class UCI:
             if move_str != '0000' and self.engine.ponder_move:
                 ponder_suffix = f' ponder {self.engine.ponder_move}'
 
-            with self._ponder_result_lock:
-                self._ponder_best_move = move_str
-                if not self._ponder_bestmove_sent:
-                    self._ponder_bestmove_sent = True
-                    send_command(f'bestmove {move_str}{ponder_suffix}')
+            with self._ponder_lock:
+                self._ponder_result = (move_str, ponder_suffix)
 
         except Exception as e:
-            send_info_string(f"error in ponder: {e}")
-            send_info_string(traceback.format_exc())
-            with self._ponder_result_lock:
-                self._ponder_best_move = '0000'
-                if not self._ponder_bestmove_sent:
-                    self._ponder_bestmove_sent = True
-                    send_command('bestmove 0000')
+            send_info_string(f"ponder error: {e}")
+            with self._ponder_lock:
+                self._ponder_result = ('0000', '')
 
     def handle_go(self, args):
         time_limit, opponent_time, depth_limit, nodes_limit, is_movetime, is_ponder = self._compute_time_limit(args)
 
-        if not is_ponder:
-            book_result = self.book.get_move(self.state)
-            if book_result:
-                book_move, book_pct, book_nodes, book_ms = book_result
-                book_nps = max(1, int(book_nodes / (book_ms / 1000)))
-                ponder_suffix = ''
-                try:
-                    ponder_state = copy.deepcopy(self.state)
-                    legal = get_legal_moves(ponder_state)
-                    for lm in legal:
-                        if move_to_uci(lm) == book_move:
-                            make_move(ponder_state, lm)
-                            break
-                    ponder_book_result = self.book.get_move(ponder_state)
-                    if ponder_book_result:
-                        ponder_suffix = f' ponder {ponder_book_result[0]}'
-                except Exception:
-                    pass
-                send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
-                send_command(f'bestmove {book_move}{ponder_suffix}')
-                return
-
+        # stop any in-flight ponder; discard its result (it was for the wrong position)
+        self._stop_ponder()
         self.engine.stop_flag.clear()
+        with self._ponder_lock:
+            self._ponder_result = None
 
         if is_ponder:
-            self._ponder_go_args = args
-            self._ponder_best_move = None
-            self._ponder_bestmove_sent = False
-            search_state = copy.deepcopy(self.state)
+            # start infinite search in background; ponderhit will apply the real time limit
+            self._ponder_args = args
+            search_state = self.state.clone()
 
+            self.engine.time_limit = INFINITE_TIME
             self._ponder_thread = threading.Thread(
-                target=self._run_ponder_search,
+                target=self._run_ponder,
                 args=(search_state, opponent_time),
                 daemon=True,
             )
+
             self._ponder_thread.start()
-        else:
-            self._ponder_thread = None
-            search_state = copy.deepcopy(self.state)
-            self.engine.time_limit = time_limit
-            try:
-                best_move = self.engine.get_best_move(search_state, opponent_time, depth_limit, nodes_limit, is_movetime)
+            return
 
-                if isinstance(best_move, str): move_str = best_move
-                elif best_move is not None: move_str = move_to_uci(best_move)
-                else: move_str = '0000'
+        # normal go — book first, then search
+        book_result = self.book.get_move(self.state)
 
-                ponder_suffix = ''
-                if move_str != '0000' and self.engine.ponder_move:
-                    ponder_suffix = f' ponder {self.engine.ponder_move}'
+        if book_result:
 
-                send_command(f'bestmove {move_str}{ponder_suffix}')
+            book_move, book_pct, book_nodes, book_ms = book_result
+            legal_moves_list = get_legal_moves(self.state)
+            legal_ucis = {move_to_uci(lm) for lm in legal_moves_list}
 
-            except Exception as e:
-                send_info_string(f"error: {e}")
-                send_info_string(traceback.format_exc())
-                send_command('bestmove 0000')
+            if book_move in legal_ucis:
+
+                book_nps = max(1, int(book_nodes / (book_ms / 1000)))
+                ponder_move = self._book_ponder(self.state, book_move, legal_moves_list)
+                ponder_suffix = f' ponder {ponder_move}' if ponder_move else ''
+
+                send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
+
+                send_command(f'bestmove {book_move}{ponder_suffix}')
+                return
+
+        # search
+        search_state = self.state.clone()
+        self.engine.time_limit = time_limit
+        try:
+            best_move = self.engine.get_best_move(search_state, opponent_time, depth_limit, nodes_limit, is_movetime)
+
+            if isinstance(best_move, str): move_str = best_move
+            elif best_move is not None: move_str = move_to_uci(best_move)
+            else: move_str = '0000'
+
+            ponder_suffix = ''
+            if move_str != '0000' and self.engine.ponder_move:
+                ponder_suffix = f' ponder {self.engine.ponder_move}'
+
+            send_command(f'bestmove {move_str}{ponder_suffix}')
+
+        except Exception as e:
+            send_info_string(f"error: {e}")
+            send_info_string(traceback.format_exc())
+            send_command('bestmove 0000')
 
     def handle_ponderhit(self):
-        if self._ponder_thread is None or not self._ponder_thread.is_alive():
-            return  # thread already finished, bestmove already sent
-
-        args = self._ponder_go_args or []
+        """opponent played the predicted move — apply real time limit and wait for result"""
+        args = self._ponder_args or []
         time_limit, opponent_time, depth_limit, nodes_limit, is_movetime, _ = self._compute_time_limit(args)
 
-        # update limits directly, _check_time reads these on every node
-        self.engine.time_limit = time_limit
-        soft = time_limit / 1000.0
-        if is_movetime:
-            self.engine.hard_time_limit = soft
-            self.engine.soft_time_limit = soft
-        else:
-            self.engine.hard_time_limit = min(soft * 1.5, time_limit / 1000.0 + 0.5)
-            self.engine.soft_time_limit = soft
+        if self._ponder_thread is not None and self._ponder_thread.is_alive():
+            # search still running — apply the real time limit
+            self.engine.time_limit = time_limit
+            self.engine.start_time = time.time()
+            soft = time_limit / 1000.0
+            if is_movetime:
+                self.engine.soft_time_limit = soft
+                self.engine.hard_time_limit = soft
+            else:
+                self.engine.soft_time_limit = soft
+                self.engine.hard_time_limit = min(soft * 1.5, soft + 0.5)
 
-        self.engine.start_time = time.time()  # reset so limits apply from now not from ponder start
-
-    def handle_stop(self):
-        if self._ponder_thread is not None:
-            self.engine.stop_flag.set()
-            self._ponder_thread.join(timeout=2.0)
+            # wait for the search to finish and emit its result
+            self._ponder_thread.join(timeout=time_limit / 1000.0 + 2.0)
             self._ponder_thread = None
 
-            with self._ponder_result_lock:
-                already_sent = self._ponder_bestmove_sent
-                if not already_sent:
-                    self._ponder_bestmove_sent = True
-                    move_str = self._ponder_best_move or '0000'
+        # emit stored result (either from completed search or just-finished search above)
+        with self._ponder_lock:
+            result = self._ponder_result
+            self._ponder_result = None
 
-            if not already_sent:
-                send_command(f'bestmove {move_str}')
+        if result:
+            move_str, ponder_suffix = result
+            send_command(f'bestmove {move_str}{ponder_suffix}')
+        else:
+            send_command('bestmove 0000')
+
+    def handle_stop(self):
+        """stop whatever is running"""
+        if self._ponder_thread is not None and self._ponder_thread.is_alive():
+            self.engine.stop_flag.set()
+            self._ponder_thread.join(timeout=5.0)
+            self._ponder_thread = None
+
+            with self._ponder_lock:
+                result = self._ponder_result
+                self._ponder_result = None
+
+            if result:
+                move_str, ponder_suffix = result
+                send_command(f'bestmove {move_str}{ponder_suffix}')
+            else:
+                send_command('bestmove 0000')
         else:
             self.engine.stop_flag.set()
 
@@ -259,12 +285,11 @@ class UCI:
         send_command('uciok')
 
     def handle_new_game(self):
-        if self._ponder_thread is not None and self._ponder_thread.is_alive():
-            self.engine.stop_flag.set()
-            self._ponder_thread.join(timeout=2.0)
-            self._ponder_thread = None
+        self._stop_ponder()
         self.engine.stop_flag.clear()
-        self._ponder_bestmove_sent = True  # suppress any bestmove from a thread that outlived the game
+        with self._ponder_lock:
+            self._ponder_result = None
+        self._ponder_args = None
         self.engine.tt.clear()
         self.engine.ordering.clear()
         self.engine.pawn_hash = type(self.engine.pawn_hash)(16)
@@ -294,8 +319,8 @@ class UCI:
         if moves_idx != -1:
             moves = args[moves_idx + 1:]
             for move_str in moves:
-                legal_moves = get_legal_moves(self.state)
-                for legal_move in legal_moves:
+                legal_moves_list = get_legal_moves(self.state)
+                for legal_move in legal_moves_list:
                     if move_to_uci(legal_move) == move_str.lower():
                         make_move(self.state, legal_move)
                         break

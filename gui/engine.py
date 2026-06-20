@@ -19,6 +19,8 @@ class Wrapper:
             raise RuntimeError(f'Could not find engine file at: {self.path}')
 
         self.supports_ponder = False
+        self.pondering = False
+        self.ponder_predicted_move = None
 
         try:
             self.process = subprocess.Popen(

@@ -5,10 +5,11 @@ from gui.sequential import SequentialTournament
 if __name__ == '__main__':
     # 'tui' = parallel games with live ANSI dashboard
     # 'gui' = sequential games with pygame board
+    # 'headless' = gui but with no terminal output
     mode = 'gui'
 
     # engines
-    new = 'TEMP/engine.sh'
+    new = 'sophia/engine.sh'
     old = 'sophia/engine.sh'
 
     # rounds

@@ -1,2 +1,4 @@
+Cython
 python-chess
 pygame
+setuptools

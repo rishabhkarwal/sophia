@@ -1,0 +1,125 @@
+# cython: language_level=3
+# cython: boundscheck=False
+# cython: wraparound=False
+# cython: cdivision=True
+
+from engine.core.constants import (
+    WHITE, BLACK,
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK,
+    MASK_SOURCE, SQUARE_TO_BB,
+    WHITE_PIECES, BLACK_PIECES
+)
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, BISHOP_MASKS, ROOK_MASKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
+from engine.moves.precomputed import BISHOP_TABLE, ROOK_TABLE
+from engine.core.move import SHIFT_TARGET
+from engine.core.move cimport _pack
+
+from engine.board.state cimport State
+from engine.board.move_exec import make_move, unmake_move
+
+cdef int _WP = WP, _WN = WN, _WB = WB, _WR = WR, _WQ = WQ, _WK = WK
+cdef int _BP = BP, _BN = BN, _BB = BB, _BR = BR, _BQ = BQ, _BK = BK
+cdef int _WHITE = WHITE, _BLACK = BLACK
+
+
+cdef bint is_square_attacked(State state, int sq, bint by_white) noexcept:
+    cdef unsigned long long all_pieces, queens, bb
+    cdef unsigned long long[16] *bbs = &state.bitboards
+
+    if by_white:
+        if BLACK_PAWN_ATTACKS[sq] & bbs[0][_WP]: return True
+        if KNIGHT_ATTACKS[sq]     & bbs[0][_WN]: return True
+        if KING_ATTACKS[sq]       & bbs[0][_WK]: return True
+
+        all_pieces = bbs[0][_WHITE] | bbs[0][_BLACK]
+        queens     = bbs[0][_WQ]
+
+        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bbs[0][_WB] | queens): return True
+        if ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (bbs[0][_WR] | queens): return True
+    else:
+        if WHITE_PAWN_ATTACKS[sq] & bbs[0][_BP]: return True
+        if KNIGHT_ATTACKS[sq]     & bbs[0][_BN]: return True
+        if KING_ATTACKS[sq]       & bbs[0][_BK]: return True
+
+        all_pieces = bbs[0][_WHITE] | bbs[0][_BLACK]
+        queens     = bbs[0][_BQ]
+
+        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bbs[0][_BB] | queens): return True
+        if ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (bbs[0][_BR] | queens): return True
+
+    return False
+
+
+cpdef bint is_in_check(State state, bint colour) noexcept:
+    cdef int king_idx, king_sq
+    cdef unsigned long long king_bb
+
+    king_idx = _WK if colour else _BK
+    king_bb  = state.bitboards[king_idx]
+    if not king_bb:
+        return False
+
+    # lsb via bit-length (king bitboard always has exactly one bit)
+    king_sq = (king_bb & -king_bb).bit_length() - 1
+
+    return is_square_attacked(state, king_sq, not colour)
+
+
+cpdef bint is_legal(State state, unsigned int move):
+    cdef int start_sq, target_sq
+    cdef int king_idx
+    cdef unsigned long long start_mask, restore_mask
+    cdef bint attacked, in_check
+
+    start_sq  = move & MASK_SOURCE
+    king_idx  = _WK if state.is_white else _BK
+
+    if state.bitboards[king_idx] & SQUARE_TO_BB[start_sq]:
+        # king move — remove king from its source, test if destination is safe
+        target_sq  = (move >> SHIFT_TARGET) & MASK_SOURCE
+        start_mask = SQUARE_TO_BB[start_sq]
+
+        state.bitboards[king_idx]            &= ~start_mask
+        state.bitboards[<int>state.is_white] &= ~start_mask
+
+        attacked = is_square_attacked(state, target_sq, not state.is_white)
+
+        # restore immediately
+        state.bitboards[king_idx]            |= start_mask
+        state.bitboards[<int>state.is_white] |= start_mask
+
+        return not attacked
+
+    # non-king move — full make/unmake + in-check test
+    make_move(state, move)
+    in_check = is_in_check(state, not state.is_white)
+    unmake_move(state, move)
+    return not in_check
+
+
+def get_attackers(State state, int sq, bint colour):
+    """return bitboard of all pieces of 'colour' that attack 'sq'"""
+    cdef unsigned long long attackers = 0
+    cdef unsigned long long all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
+    cdef int P, N, B, R, Q, K
+
+    if colour: # WHITE
+        P = _WP; N = _WN; B = _WB; R = _WR; Q = _WQ; K = _WK
+        pawn_attacks = BLACK_PAWN_ATTACKS[sq]
+    else:      # BLACK
+        P = _BP; N = _BN; B = _BB; R = _BR; Q = _BQ; K = _BK
+        pawn_attacks = WHITE_PAWN_ATTACKS[sq]
+
+    pa = pawn_attacks & state.bitboards[P]
+    if pa: attackers |= pa
+
+    na = KNIGHT_ATTACKS[sq] & state.bitboards[N]
+    if na: attackers |= na
+
+    ka = KING_ATTACKS[sq] & state.bitboards[K]
+    if ka: attackers |= ka
+
+    attackers |= BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (state.bitboards[B] | state.bitboards[Q])
+    attackers |= ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (state.bitboards[R] | state.bitboards[Q])
+    return attackers

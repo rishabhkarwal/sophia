@@ -23,7 +23,7 @@ def _get_score(state):
     return static_eval(state)
 
 def evaluate(state):
-    """Prints the static evaluation of the current state"""
+    """prints the static evaluation of the current state"""
     score = _get_score(state)
     
     mg_phase = min(state.phase, MAX_PHASE)
@@ -36,7 +36,6 @@ def evaluate(state):
 
 
 def perft(state, depth):
-    """Runs Perft"""
     def _perft_recursive(state, depth):
         if depth == 0: return 1
         
@@ -134,7 +133,7 @@ def move_accuracy(state, move_str):
     else: send_command(f'{_get_move_accuracy(win_percent_before, win_percent_after) :.2f}%\n')
 
 def legal_moves(state):
-    """Prints all legal moves in the current position"""
+    """prints all legal moves in the current position"""
     moves = get_legal_moves(state)
     move_strings = [move_to_uci(m) for m in moves]
     move_strings.sort()
@@ -166,7 +165,7 @@ def debug_eval_toggle():
 def order_moves(state):
     ordering = MoveOrdering()
     scored = sorted(
-        [(ordering.get_move_score(m, None, None, state, 1, None, None), move_to_uci(m)) for m in get_legal_moves(state)],
+        [(ordering.get_move_score(m, 0, 0, state, 1, 0, 0), move_to_uci(m)) for m in get_legal_moves(state)],
         reverse=True
     )
     send_command(f"Move ordering ({len(scored)} moves):")
@@ -184,12 +183,15 @@ def history_top(ordering, n=10):
     send_command("")
 
 def tt_stats(tt):
-    step = max(1, tt.size // min(tt.size, 100_000))
-    entries = [tt.table[i] for i in range(0, tt.size, step)]
-    exact = sum(1 for e in entries if e and e.flag == 0)
-    bound = sum(1 for e in entries if e and e.flag != 0)
-    empty = sum(1 for e in entries if e is None)
-    total = exact + bound + empty
+    if hasattr(tt, "sample_stats"):
+        total, exact, bound, empty = tt.sample_stats()
+    else:
+        step = max(1, tt.size // min(tt.size, 100_000))
+        entries = [tt.table[i] for i in range(0, tt.size, step)]
+        exact = sum(1 for e in entries if e and e[3] == 0)
+        bound = sum(1 for e in entries if e and e[3] != 0)
+        empty = sum(1 for e in entries if e is None)
+        total = exact + bound + empty
     send_command(f"TT stats (sampled {total} of {tt.size}):")
     send_command(f"  hashfull: {tt.get_hashfull()}/1000")
     send_command(f"  exact:    {exact} ({100*exact//total if total else 0}%)")
