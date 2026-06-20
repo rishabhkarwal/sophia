@@ -27,7 +27,7 @@ def log_error(message):
     log(f"ERROR: {message}", Colour.RED)
 
 def log_info(message):
-    log(message, Colour.CYAN)
+    log(message, Colour.GREEN)
 
 def log_gui(message):
     print(f'\n{Colour.GREY}[{get_time()}] [GUI] >> {message}{Colour.RESET}')

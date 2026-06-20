@@ -16,9 +16,9 @@ class SequentialTournament:
         self.cfg = config
         self.gui = GUI()
 
-        self.engine_1 = Wrapper(self.cfg.engine_1_path, console_colour=Colour.BLUE)
+        self.engine_1 = Wrapper(self.cfg.engine_1_path, console_colour=Colour.CYAN)
         self.engine_1.name = self.cfg.engine_1_name
-        self.engine_2 = Wrapper(self.cfg.engine_2_path, console_colour=Colour.MAGENTA)
+        self.engine_2 = Wrapper(self.cfg.engine_2_path, console_colour=Colour.RED)
         self.engine_2.name = self.cfg.engine_2_name
 
     def run(self):
@@ -150,6 +150,7 @@ class SequentialTournament:
                     try:
                         move = chess.Move.from_uci(best_move_str)
                         if move in board.legal_moves:
+                            self.gui.animate_move(board, move)
                             board.push(move)
                         else:
                             result_text = "0-1" if is_white else "1-0"

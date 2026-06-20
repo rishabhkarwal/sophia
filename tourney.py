@@ -37,6 +37,10 @@ if __name__ == '__main__':
         (10 * 60, 1, 20),     # rapid  10+1
     ]
 
+    rounds = [
+        (0.1 * 60,  0, 10)
+    ]
+
     # run
     for tc, inc, games in rounds:
         config = Config(
