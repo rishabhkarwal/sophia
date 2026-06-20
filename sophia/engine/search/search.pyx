@@ -25,13 +25,14 @@ from engine.core.move import (
     CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
     move_to_uci, SHIFT_TARGET
 )
-from engine.moves.generator cimport generate_pseudo_legal_moves
+from engine.moves.generator cimport MoveList, generate_pseudo_legal_move_list
 from engine.moves.generator import generate_pseudo_legal_moves
-from engine.board.move_exec import (
+from engine.board.move_exec cimport (
     make_move, unmake_move,
     make_null_move, unmake_null_move,
-    is_repetition, has_insufficient_material
+    has_insufficient_material
 )
+from engine.board.move_exec import is_repetition
 from engine.moves.legality import is_in_check
 from engine.search.transposition import (
     FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
@@ -40,7 +41,7 @@ from engine.search.transposition cimport TranspositionTable
 from engine.search.evaluation cimport evaluate
 from engine.search.evaluation import evaluate, PawnHashTable
 from engine.search.ordering import MoveOrdering
-from engine.search.ordering cimport MoveOrdering, pick_next_move
+from engine.search.ordering cimport MoveOrdering, pick_next_move, pick_next_move_list
 from engine.search.see cimport see_ge
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
@@ -538,7 +539,10 @@ cdef class SearchEngine:
         cdef bint needs_full, time_pressure_mode, see_ok
         cdef unsigned int tt_move, k1, k2, counter
         cdef object best_move
-        cdef object quiet_moves_tried, moves
+        cdef MoveList moves
+        cdef unsigned int quiet_moves_tried[256]
+        cdef int quiet_moves_count
+        cdef unsigned int q
         # tt probe output — c locals extracted immediately to avoid stale pointer after recursion
         cdef short         _tt_depth
         cdef int           _tt_score
@@ -728,7 +732,7 @@ cdef class SearchEngine:
                     do_futility = True
 
         alpha_orig = alpha
-        moves = generate_pseudo_legal_moves(state)
+        generate_pseudo_legal_move_list(state, &moves, False)
 
         tt_move = _tt_move_raw if (_tt_hit and _tt_move_raw != 0) else 0
         k1 = self.ordering.killer_moves[depth][0]
@@ -738,13 +742,13 @@ cdef class SearchEngine:
         best_value = -_INFINITY * 10
         best_move = None
         legal_moves_count = 0
-        quiet_moves_tried = []
+        quiet_moves_count = 0
 
         time_pressure_mode = self.opponent_time_ms < 10_000
 
-        for i in range(len(moves)):
-            pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
-            move = moves[i]
+        for i in range(moves.count):
+            pick_next_move_list(&moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
+            move = moves.moves[i]
 
             see_ok = True
             if (move & _CAPTURE_FLAG) and depth <= 6:
@@ -767,7 +771,9 @@ cdef class SearchEngine:
                 is_interesting = True
 
             if not is_interesting:
-                quiet_moves_tried.append(move)
+                if quiet_moves_count < 256:
+                    quiet_moves_tried[quiet_moves_count] = move
+                    quiet_moves_count += 1
 
             child_depth = depth - 1
             if old_phase > 0 and state.phase == 0:
@@ -840,7 +846,8 @@ cdef class SearchEngine:
                 self.ordering.store_killer(depth, move)
                 self.ordering.store_history(move, depth)
                 self.ordering.store_countermove(previous_move, move)
-                for q in quiet_moves_tried:
+                for i in range(quiet_moves_count):
+                    q = quiet_moves_tried[i]
                     if q != move:
                         self.ordering.apply_history_malus(q, depth)
                 return beta
@@ -873,7 +880,7 @@ cdef class SearchEngine:
         cdef unsigned int move
         cdef bint in_check, legal_moves_found
         cdef unsigned int tt_move
-        cdef object moves
+        cdef MoveList moves
         cdef unsigned long long key
         # TT probe output
         cdef short         _tt_depth
@@ -922,11 +929,11 @@ cdef class SearchEngine:
                 alpha = evaluation
 
         if in_check:
-            moves = generate_pseudo_legal_moves(state, captures_only=False)
+            generate_pseudo_legal_move_list(state, &moves, False)
         else:
-            moves = generate_pseudo_legal_moves(state, captures_only=True)
+            generate_pseudo_legal_move_list(state, &moves, True)
 
-        if not moves:
+        if moves.count == 0:
             if in_check:
                 return -_INFINITY + ply
             return alpha
@@ -935,9 +942,9 @@ cdef class SearchEngine:
 
         legal_moves_found = False
 
-        for i in range(len(moves)):
-            pick_next_move(moves, i, state, self.ordering, tt_move, 0, 0, 0, 0)
-            move = moves[i]
+        for i in range(moves.count):
+            pick_next_move_list(&moves, i, state, self.ordering, tt_move, 0, 0, 0, 0)
+            move = moves.moves[i]
 
             if not in_check and (move & _CAPTURE_FLAG):
                 if _const.DEBUG: self.dbg_qsee_tests += 1

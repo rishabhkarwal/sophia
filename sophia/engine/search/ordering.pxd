@@ -1,6 +1,7 @@
 # declaration header for ordering.pyx
 
 from engine.board.state cimport State
+from engine.moves.generator cimport MoveList
 
 cdef class MoveOrdering:
     cdef public int   history_table[64][64]
@@ -19,3 +20,6 @@ cdef class MoveOrdering:
 cpdef int pick_next_move(list moves, int start_index, State state, MoveOrdering ordering,
                          unsigned int tt_move, unsigned int counter,
                          int depth, unsigned int k1, unsigned int k2) noexcept
+cdef int pick_next_move_list(MoveList* moves, int start_index, State state, MoveOrdering ordering,
+                             unsigned int tt_move, unsigned int counter,
+                             int depth, unsigned int k1, unsigned int k2) noexcept

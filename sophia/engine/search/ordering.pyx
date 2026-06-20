@@ -15,6 +15,7 @@ from engine.core.move import (
 )
 from engine.search.see cimport see_ge
 from engine.board.state cimport State
+from engine.moves.generator cimport MoveList
 
 cdef int _INFINITY        = INFINITY
 cdef int _NULL_SQ         = _NULL
@@ -211,5 +212,32 @@ cpdef int pick_next_move(list moves, int start_index, State state, MoveOrdering 
 
     if best_idx != start_index:
         moves[start_index], moves[best_idx] = moves[best_idx], moves[start_index]
+
+    return start_index
+
+
+cdef int pick_next_move_list(MoveList* moves, int start_index, State state, MoveOrdering ordering,
+                             unsigned int tt_move, unsigned int counter,
+                             int depth, unsigned int k1, unsigned int k2) noexcept:
+    cdef int best_idx, i, n, best_score, score
+    cdef unsigned int tmp
+
+    n = moves.count
+    if start_index >= n:
+        return -1
+
+    best_idx   = start_index
+    best_score = ordering.get_move_score(moves.moves[start_index], tt_move, counter, state, depth, k1, k2)
+
+    for i in range(start_index + 1, n):
+        score = ordering.get_move_score(moves.moves[i], tt_move, counter, state, depth, k1, k2)
+        if score > best_score:
+            best_score = score
+            best_idx   = i
+
+    if best_idx != start_index:
+        tmp = moves.moves[start_index]
+        moves.moves[start_index] = moves.moves[best_idx]
+        moves.moves[best_idx] = tmp
 
     return start_index

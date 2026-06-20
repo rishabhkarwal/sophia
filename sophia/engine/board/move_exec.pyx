@@ -73,7 +73,7 @@ def is_repetition(State state):
     return count >= 2, count >= 4
 
 
-def has_insufficient_material(State state):
+cpdef bint has_insufficient_material(State state):
     cdef int w_knights, w_bishops, b_knights, b_bishops, total_minors
     cdef int w_sq, b_sq
     cdef unsigned long long wb_bb, bb_bb
@@ -105,7 +105,7 @@ def has_insufficient_material(State state):
     return False
 
 
-def make_null_move(State state):
+cpdef void make_null_move(State state):
     cdef int old_ep, old_last_moved
     cdef unsigned long long old_hash
 
@@ -125,7 +125,7 @@ def make_null_move(State state):
     state.last_moved_piece_sq = _NULL_VAL
 
 
-def unmake_null_move(State state):
+cpdef void unmake_null_move(State state):
     old_ep, old_hash, old_last_moved = state.context_stack.pop()
     state.en_passant_square = old_ep
     state.hash = old_hash

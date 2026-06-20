@@ -1,3 +1,8 @@
 from engine.board.state cimport State
 
+cdef struct MoveList:
+    unsigned int moves[256]
+    int count
+
+cdef void generate_pseudo_legal_move_list(State state, MoveList* moves, bint captures_only) noexcept
 cpdef list generate_pseudo_legal_moves(State state, bint captures_only=*)

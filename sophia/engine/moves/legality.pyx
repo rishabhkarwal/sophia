@@ -15,7 +15,7 @@ from engine.core.move import SHIFT_TARGET
 from engine.core.move cimport _pack
 
 from engine.board.state cimport State
-from engine.board.move_exec import make_move, unmake_move
+from engine.board.move_exec cimport make_move, unmake_move
 
 cdef int _WP = WP, _WN = WN, _WB = WB, _WR = WR, _WQ = WQ, _WK = WK
 cdef int _BP = BP, _BN = BN, _BB = BB, _BR = BR, _BQ = BQ, _BK = BK

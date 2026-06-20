@@ -11,8 +11,7 @@ from engine.core.constants import (
     WHITE_PIECES, BLACK_PIECES,
     MASK_SOURCE,
     WP, BP, WN, BN, WB, BB, WR, BR, WQ, BQ, WK, BK,
-    WHITE, BLACK, NORTH, SOUTH,
-    SQUARE_TO_BB
+    WHITE, BLACK, NORTH, SOUTH
 )
 from engine.core.move import SHIFT_TARGET
 from engine.core.move cimport _pack
@@ -58,20 +57,30 @@ cdef int _E1 = E1, _F1 = F1, _G1 = G1, _C1 = C1, _D1 = D1, _B1 = B1
 cdef int _E8 = E8, _F8 = F8, _G8 = G8, _C8 = C8, _D8 = D8, _B8 = B8
 
 
-cdef inline void _add_promotions(list moves, int from_sq, int to_sq, bint is_capture) noexcept:
+cdef inline unsigned long long _sq_bb(int sq) noexcept:
+    return (<unsigned long long>1) << sq
+
+
+cdef inline void _add_move(MoveList* moves, unsigned int move) noexcept:
+    if moves.count < 256:
+        moves.moves[moves.count] = move
+        moves.count += 1
+
+
+cdef inline void _add_promotions(MoveList* moves, int from_sq, int to_sq, bint is_capture) noexcept:
     if is_capture:
-        moves.append(_pack(from_sq, to_sq, _PCAP_Q))
-        moves.append(_pack(from_sq, to_sq, _PCAP_R))
-        moves.append(_pack(from_sq, to_sq, _PCAP_B))
-        moves.append(_pack(from_sq, to_sq, _PCAP_N))
+        _add_move(moves, _pack(from_sq, to_sq, _PCAP_Q))
+        _add_move(moves, _pack(from_sq, to_sq, _PCAP_R))
+        _add_move(moves, _pack(from_sq, to_sq, _PCAP_B))
+        _add_move(moves, _pack(from_sq, to_sq, _PCAP_N))
     else:
-        moves.append(_pack(from_sq, to_sq, _PROM_Q))
-        moves.append(_pack(from_sq, to_sq, _PROM_R))
-        moves.append(_pack(from_sq, to_sq, _PROM_B))
-        moves.append(_pack(from_sq, to_sq, _PROM_N))
+        _add_move(moves, _pack(from_sq, to_sq, _PROM_Q))
+        _add_move(moves, _pack(from_sq, to_sq, _PROM_R))
+        _add_move(moves, _pack(from_sq, to_sq, _PROM_B))
+        _add_move(moves, _pack(from_sq, to_sq, _PROM_N))
 
 
-cdef void _gen_pawn_moves(State state, list moves, int pawn_key,
+cdef void _gen_pawn_moves(State state, MoveList* moves, int pawn_key,
                           bint is_white, unsigned long long all_pieces,
                           unsigned long long enemy,
                           unsigned long long* attack_table,
@@ -107,7 +116,7 @@ cdef void _gen_pawn_moves(State state, list moves, int pawn_key,
             if is_promo:
                 _add_promotions(moves, from_sq, to_sq, False)
             else:
-                moves.append(_pack(from_sq, to_sq, _QUIET))
+                _add_move(moves, _pack(from_sq, to_sq, _QUIET))
 
         # double pushes
         bb = double_push
@@ -116,7 +125,7 @@ cdef void _gen_pawn_moves(State state, list moves, int pawn_key,
             to_sq   = lsb_bb.bit_length() - 1
             bb     &= bb - 1
             from_sq = to_sq - (2 * direction)
-            moves.append(_pack(from_sq, to_sq, _DOUBLE_PUSH))
+            _add_move(moves, _pack(from_sq, to_sq, _DOUBLE_PUSH))
 
     # captures
     bb = pawns
@@ -135,15 +144,15 @@ cdef void _gen_pawn_moves(State state, list moves, int pawn_key,
             if is_promo:
                 _add_promotions(moves, from_sq, to_sq, True)
             else:
-                moves.append(_pack(from_sq, to_sq, _CAPTURE))
+                _add_move(moves, _pack(from_sq, to_sq, _CAPTURE))
 
         # en-passant
         if state.en_passant_square != _NULL_SQ:
-            if attack_table[from_sq] & SQUARE_TO_BB[state.en_passant_square]:
-                moves.append(_pack(from_sq, state.en_passant_square, _EN_PASSANT))
+            if attack_table[from_sq] & _sq_bb(state.en_passant_square):
+                _add_move(moves, _pack(from_sq, state.en_passant_square, _EN_PASSANT))
 
 
-cdef void _gen_knight_moves(unsigned long long pieces, list moves,
+cdef void _gen_knight_moves(unsigned long long pieces, MoveList* moves,
                             unsigned long long active, unsigned long long enemy,
                             bint captures_only) noexcept:
     cdef unsigned long long lsb_bb, targets, t_lsb
@@ -162,11 +171,11 @@ cdef void _gen_knight_moves(unsigned long long pieces, list moves,
             t_lsb   = targets & -targets
             to_sq   = t_lsb.bit_length() - 1
             targets &= targets - 1
-            flag    = _CAPTURE if SQUARE_TO_BB[to_sq] & enemy else _QUIET
-            moves.append(_pack(from_sq, to_sq, flag))
+            flag    = _CAPTURE if _sq_bb(to_sq) & enemy else _QUIET
+            _add_move(moves, _pack(from_sq, to_sq, flag))
 
 
-cdef void _gen_king_moves(unsigned long long pieces, list moves,
+cdef void _gen_king_moves(unsigned long long pieces, MoveList* moves,
                           unsigned long long active, unsigned long long enemy,
                           bint captures_only) noexcept:
     cdef unsigned long long lsb_bb, targets, t_lsb
@@ -185,45 +194,45 @@ cdef void _gen_king_moves(unsigned long long pieces, list moves,
             t_lsb   = targets & -targets
             to_sq   = t_lsb.bit_length() - 1
             targets &= targets - 1
-            flag    = _CAPTURE if SQUARE_TO_BB[to_sq] & enemy else _QUIET
-            moves.append(_pack(from_sq, to_sq, flag))
+            flag    = _CAPTURE if _sq_bb(to_sq) & enemy else _QUIET
+            _add_move(moves, _pack(from_sq, to_sq, flag))
 
 
-cdef void _gen_castling_moves(State state, list moves,
+cdef void _gen_castling_moves(State state, MoveList* moves,
                                unsigned long long all_pieces) noexcept:
     cdef bint opp = not state.is_white
 
     if state.is_white:
         if state.castling_rights & _CWK:
-            if not (all_pieces & (SQUARE_TO_BB[_F1] | SQUARE_TO_BB[_G1])):
+            if not (all_pieces & (_sq_bb(_F1) | _sq_bb(_G1))):
                 if (not is_square_attacked(state, _E1, opp) and
                     not is_square_attacked(state, _F1, opp) and
                     not is_square_attacked(state, _G1, opp)):
-                    moves.append(_pack(_E1, _G1, _CASTLE_KS))
+                    _add_move(moves, _pack(_E1, _G1, _CASTLE_KS))
 
         if state.castling_rights & _CWQ:
-            if not (all_pieces & (SQUARE_TO_BB[_B1] | SQUARE_TO_BB[_C1] | SQUARE_TO_BB[_D1])):
+            if not (all_pieces & (_sq_bb(_B1) | _sq_bb(_C1) | _sq_bb(_D1))):
                 if (not is_square_attacked(state, _E1, opp) and
                     not is_square_attacked(state, _D1, opp) and
                     not is_square_attacked(state, _C1, opp)):
-                    moves.append(_pack(_E1, _C1, _CASTLE_QS))
+                    _add_move(moves, _pack(_E1, _C1, _CASTLE_QS))
     else:
         if state.castling_rights & _CBK:
-            if not (all_pieces & (SQUARE_TO_BB[_F8] | SQUARE_TO_BB[_G8])):
+            if not (all_pieces & (_sq_bb(_F8) | _sq_bb(_G8))):
                 if (not is_square_attacked(state, _E8, opp) and
                     not is_square_attacked(state, _F8, opp) and
                     not is_square_attacked(state, _G8, opp)):
-                    moves.append(_pack(_E8, _G8, _CASTLE_KS))
+                    _add_move(moves, _pack(_E8, _G8, _CASTLE_KS))
 
         if state.castling_rights & _CBQ:
-            if not (all_pieces & (SQUARE_TO_BB[_B8] | SQUARE_TO_BB[_C8] | SQUARE_TO_BB[_D8])):
+            if not (all_pieces & (_sq_bb(_B8) | _sq_bb(_C8) | _sq_bb(_D8))):
                 if (not is_square_attacked(state, _E8, opp) and
                     not is_square_attacked(state, _D8, opp) and
                     not is_square_attacked(state, _C8, opp)):
-                    moves.append(_pack(_E8, _C8, _CASTLE_QS))
+                    _add_move(moves, _pack(_E8, _C8, _CASTLE_QS))
 
 
-cdef void _gen_bishop_moves(unsigned long long pieces, list moves,
+cdef void _gen_bishop_moves(unsigned long long pieces, MoveList* moves,
                              unsigned long long all_pieces,
                              unsigned long long active,
                              unsigned long long enemy,
@@ -244,11 +253,11 @@ cdef void _gen_bishop_moves(unsigned long long pieces, list moves,
             t_lsb   = targets & -targets
             to_sq   = t_lsb.bit_length() - 1
             targets &= targets - 1
-            flag    = _CAPTURE if SQUARE_TO_BB[to_sq] & enemy else _QUIET
-            moves.append(_pack(from_sq, to_sq, flag))
+            flag    = _CAPTURE if _sq_bb(to_sq) & enemy else _QUIET
+            _add_move(moves, _pack(from_sq, to_sq, flag))
 
 
-cdef void _gen_rook_moves(unsigned long long pieces, list moves,
+cdef void _gen_rook_moves(unsigned long long pieces, MoveList* moves,
                            unsigned long long all_pieces,
                            unsigned long long active,
                            unsigned long long enemy,
@@ -269,11 +278,11 @@ cdef void _gen_rook_moves(unsigned long long pieces, list moves,
             t_lsb   = targets & -targets
             to_sq   = t_lsb.bit_length() - 1
             targets &= targets - 1
-            flag    = _CAPTURE if SQUARE_TO_BB[to_sq] & enemy else _QUIET
-            moves.append(_pack(from_sq, to_sq, flag))
+            flag    = _CAPTURE if _sq_bb(to_sq) & enemy else _QUIET
+            _add_move(moves, _pack(from_sq, to_sq, flag))
 
 
-cdef void _gen_queen_moves(unsigned long long pieces, list moves,
+cdef void _gen_queen_moves(unsigned long long pieces, MoveList* moves,
                             unsigned long long all_pieces,
                             unsigned long long active,
                             unsigned long long enemy,
@@ -295,16 +304,16 @@ cdef void _gen_queen_moves(unsigned long long pieces, list moves,
             t_lsb   = targets & -targets
             to_sq   = t_lsb.bit_length() - 1
             targets &= targets - 1
-            flag    = _CAPTURE if SQUARE_TO_BB[to_sq] & enemy else _QUIET
-            moves.append(_pack(from_sq, to_sq, flag))
+            flag    = _CAPTURE if _sq_bb(to_sq) & enemy else _QUIET
+            _add_move(moves, _pack(from_sq, to_sq, flag))
 
 
-cpdef list generate_pseudo_legal_moves(State state, bint captures_only=False):
-    """return list of pseudo-legal moves for the current side to move"""
-    cdef list moves = []
+cdef void generate_pseudo_legal_move_list(State state, MoveList* moves, bint captures_only) noexcept:
     cdef unsigned long long active, opponent, all_pieces
     cdef int P, N, B, R, Q, K
     cdef unsigned long long* pawn_attacks
+
+    moves.count = 0
 
     if state.is_white:
         active   = state.bitboards[_WHITE]
@@ -328,10 +337,33 @@ cpdef list generate_pseudo_legal_moves(State state, bint captures_only=False):
     _gen_rook_moves(state.bitboards[R], moves, all_pieces, active, opponent, captures_only)
     _gen_queen_moves(state.bitboards[Q], moves, all_pieces, active, opponent, captures_only)
 
+
+cpdef list generate_pseudo_legal_moves(State state, bint captures_only=False):
+    """return list of pseudo-legal moves for the current side to move"""
+    cdef MoveList move_list
+    cdef list moves = []
+    cdef int i
+
+    generate_pseudo_legal_move_list(state, &move_list, captures_only)
+
+    for i in range(move_list.count):
+        moves.append(move_list.moves[i])
+
     return moves
 
 
 def get_legal_moves(State state, bint captures_only=False):
     """return list of fully legal move ints (filters pseudo-legal by legality)"""
-    pseudo = generate_pseudo_legal_moves(state, captures_only)
-    return [move for move in pseudo if is_legal(state, move)]
+    cdef MoveList pseudo
+    cdef list legal = []
+    cdef int i
+    cdef unsigned int move
+
+    generate_pseudo_legal_move_list(state, &pseudo, captures_only)
+
+    for i in range(pseudo.count):
+        move = pseudo.moves[i]
+        if is_legal(state, move):
+            legal.append(move)
+
+    return legal
