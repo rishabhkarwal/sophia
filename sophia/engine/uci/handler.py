@@ -30,6 +30,7 @@ class UCI:
         # result stored by _run_ponder; emitted only by ponderhit/stop
         self._ponder_result = None
         self._ponder_args = None
+        self._ponder_time_limit = None
 
     def run(self):
         while True:
@@ -119,15 +120,17 @@ class UCI:
         return int(time_limit), opponent_time, depth_limit, nodes_limit, (move_time is not None), is_ponder
 
     def _stop_ponder(self):
-        """Signal ponder thread to stop and wait for it. Does NOT emit bestmove."""
+        """signal ponder thread to stop and wait for it; does NOT emit bestmove"""
         if self._ponder_thread is not None:
             if self._ponder_thread.is_alive():
                 self.engine.stop_flag.set()
                 self._ponder_thread.join(timeout=5.0)
             self._ponder_thread = None
+        self._ponder_args = None
+        self._ponder_time_limit = None
 
     def _book_ponder(self, state, book_move_uci, legal_moves_list):
-        """Look up book move for the position after book_move_uci is played."""
+        """look up book move for the position after uci is played"""
         try:
             ponder_state = state.clone()
             for lm in legal_moves_list:
@@ -174,6 +177,7 @@ class UCI:
         if is_ponder:
             # start infinite search in background; ponderhit will apply the real time limit
             self._ponder_args = args
+            self._ponder_time_limit = time_limit
             search_state = self.state.clone()
 
             self.engine.time_limit = INFINITE_TIME
@@ -230,7 +234,8 @@ class UCI:
     def handle_ponderhit(self):
         """opponent played the predicted move — apply real time limit and wait for result"""
         args = self._ponder_args or []
-        time_limit, opponent_time, depth_limit, nodes_limit, is_movetime, _ = self._compute_time_limit(args)
+        computed_time_limit, _, _, _, is_movetime, _ = self._compute_time_limit(args)
+        time_limit = self._ponder_time_limit if self._ponder_time_limit is not None else computed_time_limit
 
         if self._ponder_thread is not None and self._ponder_thread.is_alive():
             # search still running — apply the real time limit
@@ -245,8 +250,11 @@ class UCI:
                 self.engine.hard_time_limit = min(soft * 1.5, soft + 0.5)
 
             # wait for the search to finish and emit its result
-            self._ponder_thread.join(timeout=time_limit / 1000.0 + 2.0)
+            self._ponder_thread.join(timeout=max(time_limit / 1000.0 + 2.0, 5.0))
             self._ponder_thread = None
+
+        self._ponder_args = None
+        self._ponder_time_limit = None
 
         # emit stored result (either from completed search or just-finished search above)
         with self._ponder_lock:
@@ -265,6 +273,9 @@ class UCI:
             self.engine.stop_flag.set()
             self._ponder_thread.join(timeout=5.0)
             self._ponder_thread = None
+
+            self._ponder_args = None
+            self._ponder_time_limit = None
 
             with self._ponder_lock:
                 result = self._ponder_result
@@ -290,6 +301,7 @@ class UCI:
         with self._ponder_lock:
             self._ponder_result = None
         self._ponder_args = None
+        self._ponder_time_limit = None
         self.engine.tt.clear()
         self.engine.ordering.clear()
         self.engine.pawn_hash = type(self.engine.pawn_hash)(16)

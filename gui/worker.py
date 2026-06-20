@@ -45,9 +45,7 @@ def play_game(assignment: GameAssignment) -> GameResult:
         result_text = ''
         termination = 'Unknown'
 
-        # ponder state
-        pondering_engine = None
-        ponder_predicted_move = None # uci move string it was told to ponder
+        ponder_state = {}
 
         while not result_text:
             if board.is_game_over():
@@ -70,20 +68,19 @@ def play_game(assignment: GameAssignment) -> GameResult:
 
             turn_start = time.time()
 
-            # resolve ponder if this engine was searching in the background last turn
-            current_move_uci = board.peek().uci() if board.move_stack else None
             ponderhit = False
-            if pondering_engine is not None and pondering_engine is engine:
-                if ponder_predicted_move and current_move_uci == ponder_predicted_move:
+            ponder_predicted_move = ponder_state.pop(engine, None)
+            if ponder_predicted_move is not None:
+                current_move_uci = board.peek().uci() if board.move_stack else None
+                if current_move_uci == ponder_predicted_move:
                     engine._send_cmd(f'ponderhit')
                     ponderhit = True
                 else:
                     engine._send_cmd('stop')
                     _drain_bestmove(engine)
+                    _sync_engine(engine)
                     engine._send_cmd(f'position fen {board.fen()}')
                     engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
-                pondering_engine = None
-                ponder_predicted_move = None
             else:
                 engine._send_cmd(f'position fen {board.fen()}')
                 engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
@@ -140,14 +137,13 @@ def play_game(assignment: GameAssignment) -> GameResult:
                 termination = 'Engine Crash'
                 break
 
-            if False and ponder_move_str and engine.supports_ponder and not board.is_game_over():
+            if ponder_move_str and engine.supports_ponder and not board.is_game_over():
                 w_ms2 = int(w_time * 1000)
                 b_ms2 = int(b_time * 1000)
                 # position must include ponder move as last move, not the fen after it
                 engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
                 engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
-                pondering_engine = engine
-                ponder_predicted_move = ponder_move_str
+                ponder_state[engine] = ponder_move_str
                 if not engine.quiet:
                     from gui.console import log_info
                     log_info(f'[ponder] started: engine={engine.name} predicting={ponder_move_str}')
@@ -156,10 +152,11 @@ def play_game(assignment: GameAssignment) -> GameResult:
                          w_time, b_time, w_name, b_name, 'playing', None)
 
         # clean up any active ponder
-        if pondering_engine is not None:
+        for pondering_engine in list(ponder_state):
             try:
                 pondering_engine._send_cmd('stop')
                 _drain_bestmove(pondering_engine)
+                _sync_engine(pondering_engine)
             except Exception:
                 pass
 
@@ -200,6 +197,22 @@ def _drain_bestmove(engine, timeout=3.0):
             if line.strip().startswith('bestmove'): break
         except OSError:
             break
+
+
+def _sync_engine(engine, timeout=1.0):
+    import select
+    engine._send_cmd('isready')
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            ready = select.select([engine.process.stdout], [], [], max(0, deadline - time.time()))
+            if not ready[0]: break
+            line = engine.process.stdout.readline()
+            if not line: break
+            if line.strip() == 'readyok': return True
+        except OSError:
+            break
+    return False
 
 
 def _send_update(game_id, move_num, fen, w_time, b_time, w_name, b_name, status, result):

@@ -54,6 +54,8 @@ class SequentialTournament:
         result_text = ""
         termination_reason = "Normal"
 
+        ponder_state = {}
+
         while not game_over:
             if board.is_game_over():
                 game_over = True
@@ -67,8 +69,22 @@ class SequentialTournament:
             b_ms = int(b_time * 1000)
             inc_ms = int(self.cfg.increment * 1000)
 
-            engine._send_cmd(f'position fen {board.fen()}')
-            engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+            ponderhit = False
+            ponder_predicted_move = ponder_state.pop(engine, None)
+            if ponder_predicted_move is not None:
+                current_move_uci = board.peek().uci() if board.move_stack else None
+                if current_move_uci == ponder_predicted_move:
+                    engine._send_cmd('ponderhit')
+                    ponderhit = True
+                else:
+                    engine._send_cmd('stop')
+                    self._drain_bestmove(engine)
+                    self._sync_engine(engine)
+                    engine._send_cmd(f'position fen {board.fen()}')
+                    engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
+            else:
+                engine._send_cmd(f'position fen {board.fen()}')
+                engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
 
             turn_start_time = time.time()
             best_move_str = None
@@ -91,6 +107,9 @@ class SequentialTournament:
 
             reader_thread = threading.Thread(target=read_bestmove, daemon=True)
             reader_thread.start()
+
+            if ponderhit:
+                turn_start_time = time.time()
 
             while not bestmove_received.is_set():
                 now = time.time()
@@ -145,9 +164,20 @@ class SequentialTournament:
                     termination_reason = "Engine Crash"
                     game_over = True
 
-            # Pondering disabled in tournament mode — ponder bestmove races with the next
-            # position/go and contaminates the engine's response for the wrong position.
-            # (Same fix already applied to worker.py for the parallel tournament.)
+            if ponder_move_str and engine.supports_ponder and not board.is_game_over():
+                w_ms2 = int(w_time * 1000)
+                b_ms2 = int(b_time * 1000)
+                engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
+                engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
+                ponder_state[engine] = ponder_move_str
+
+        for pondering_engine in list(ponder_state):
+            try:
+                pondering_engine._send_cmd('stop')
+                self._drain_bestmove(pondering_engine)
+                self._sync_engine(pondering_engine)
+            except Exception:
+                pass
 
         if not result_text: result_text = board.result()
 
@@ -201,6 +231,20 @@ class SequentialTournament:
                 if line.strip().startswith('bestmove'): break
             except OSError:
                 break
+
+    def _sync_engine(self, engine, timeout=1.0):
+        engine._send_cmd('isready')
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                ready = select.select([engine.process.stdout], [], [], max(0, deadline - time.time()))
+                if not ready[0]: break
+                line = engine.process.stdout.readline()
+                if not line: break
+                if line.strip() == 'readyok': return True
+            except OSError:
+                break
+        return False
 
     def _update_score(self, result, white, black):
         if "1-0" in result:
