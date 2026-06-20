@@ -13,7 +13,7 @@ from engine.core.move import (
     CAPTURE, EN_PASSANT, PROMOTION, FLAG_MASK,
     SHIFT_TARGET, SHIFT_FLAG
 )
-from engine.search.see import see_fast
+from engine.search.see cimport see_ge
 from engine.board.state cimport State
 
 cdef int _INFINITY        = INFINITY
@@ -155,7 +155,7 @@ cdef class MoveOrdering:
             attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
             mvv_lva = 10 * victim_val - attacker_val
 
-            if see_fast(state, move, threshold=0):
+            if see_ge(state, move, 0):
                 return _SCORE_GOOD_CAP + mvv_lva
             else:
                 return _SCORE_BAD_CAP + mvv_lva

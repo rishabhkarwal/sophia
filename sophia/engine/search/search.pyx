@@ -41,7 +41,7 @@ from engine.search.evaluation cimport evaluate
 from engine.search.evaluation import evaluate, PawnHashTable
 from engine.search.ordering import MoveOrdering
 from engine.search.ordering cimport MoveOrdering, pick_next_move
-from engine.search.see import see_fast
+from engine.search.see cimport see_ge
 from engine.uci.utils import send_command, send_info_string
 from engine.search.syzygy import SyzygyHandler
 from engine.search.utils import _get_cp_score
@@ -143,6 +143,10 @@ cdef class SearchEngine:
         self.dbg_qnodes           = 0
         self.dbg_qstandpat        = 0
         self.dbg_qdelta_prunes    = 0
+        self.dbg_see_tests        = 0
+        self.dbg_see_prunes       = 0
+        self.dbg_qsee_tests       = 0
+        self.dbg_qsee_prunes      = 0
         self.dbg_beta_cutoff_idx  = []
         self.dbg_cutoff_by_tt     = 0
         self.dbg_cutoff_by_killer = 0
@@ -249,6 +253,10 @@ cdef class SearchEngine:
             self.dbg_qnodes           = 0
             self.dbg_qstandpat        = 0
             self.dbg_qdelta_prunes    = 0
+            self.dbg_see_tests        = 0
+            self.dbg_see_prunes       = 0
+            self.dbg_qsee_tests       = 0
+            self.dbg_qsee_prunes      = 0
             self.dbg_beta_cutoff_idx  = []
             self.dbg_cutoff_by_tt     = 0
             self.dbg_cutoff_by_killer = 0
@@ -399,6 +407,7 @@ cdef class SearchEngine:
                     send_info_string(
                         f"[dbg q/order d{current_depth}] "
                         f"qnodes={self.dbg_qnodes}({qratio}) standpat={self.dbg_qstandpat} qdelta={self.dbg_qdelta_prunes} "
+                        f"see={self.dbg_see_prunes}/{self.dbg_see_tests} qsee={self.dbg_qsee_prunes}/{self.dbg_qsee_tests} "
                         f"cutoff_src=tt:{self.dbg_cutoff_by_tt}/killer:{self.dbg_cutoff_by_killer}/cap:{self.dbg_cutoff_by_cap}/quiet:{self.dbg_cutoff_by_quiet} "
                         f"cutoff_idx=avg{avg_cutoff_idx:.1f}(1st={first_move_cuts}/{total_cuts}) "
                         f"syzygy={self.dbg_syzygy_probes}(hit={syzygy_hit_rate}) "
@@ -429,6 +438,10 @@ cdef class SearchEngine:
                     self.dbg_qnodes           = 0
                     self.dbg_qstandpat        = 0
                     self.dbg_qdelta_prunes    = 0
+                    self.dbg_see_tests        = 0
+                    self.dbg_see_prunes       = 0
+                    self.dbg_qsee_tests       = 0
+                    self.dbg_qsee_prunes      = 0
                     self.dbg_beta_cutoff_idx  = []
                     self.dbg_cutoff_by_tt     = 0
                     self.dbg_cutoff_by_killer = 0
@@ -522,7 +535,7 @@ cdef class SearchEngine:
         cdef int lmp_threshold, best_value, value, val, flag
         cdef unsigned int move
         cdef bint in_check, gives_check, is_interesting, do_futility
-        cdef bint needs_full, time_pressure_mode
+        cdef bint needs_full, time_pressure_mode, see_ok
         cdef unsigned int tt_move, k1, k2, counter
         cdef object best_move
         cdef object quiet_moves_tried, moves
@@ -733,6 +746,10 @@ cdef class SearchEngine:
             pick_next_move(moves, i, state, self.ordering, tt_move, counter, depth, k1, k2)
             move = moves[i]
 
+            see_ok = True
+            if (move & _CAPTURE_FLAG) and depth <= 6:
+                see_ok = see_ge(state, move, 0)
+
             old_phase = state.phase
             make_move(state, move)
 
@@ -771,7 +788,9 @@ cdef class SearchEngine:
 
             # SEE pruning
             if (move & _CAPTURE_FLAG) and depth <= 6 and not gives_check:
-                if not see_fast(state, move, threshold=0):
+                if _const.DEBUG: self.dbg_see_tests += 1
+                if not see_ok:
+                    if _const.DEBUG: self.dbg_see_prunes += 1
                     unmake_move(state, move)
                     continue
 
@@ -921,7 +940,9 @@ cdef class SearchEngine:
             move = moves[i]
 
             if not in_check and (move & _CAPTURE_FLAG):
-                if not see_fast(state, move, threshold=0):
+                if _const.DEBUG: self.dbg_qsee_tests += 1
+                if not see_ge(state, move, 0):
+                    if _const.DEBUG: self.dbg_qsee_prunes += 1
                     continue
 
             make_move(state, move)

@@ -1,152 +1,199 @@
 from engine.core.constants import (
     WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    PIECE_VALUES, MASK_SOURCE, SQUARE_TO_BB, NULL as _NULL,
+    PIECE_VALUES, MASK_SOURCE, NULL as _NULL,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
 )
-from engine.core.move import SHIFT_TARGET, EN_PASSANT, SHIFT_FLAG, FLAG_MASK
+from engine.core.move import (
+    SHIFT_TARGET, EN_PASSANT, SHIFT_FLAG, FLAG_MASK,
+    PROMOTION, SPECIAL_1, SPECIAL_0
+)
+from engine.board.state cimport State
+from engine.core.bits cimport lsb
 from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
 
+cdef int _WHITE = WHITE
+cdef int _BLACK = BLACK
+cdef int _NULL_SQ = _NULL
+cdef int _PAWN = PAWN
+cdef int _KNIGHT = KNIGHT
+cdef int _BISHOP = BISHOP
+cdef int _ROOK = ROOK
+cdef int _QUEEN = QUEEN
+cdef int _KING = KING
+cdef int _WP = WP, _WN = WN, _WB = WB, _WR = WR, _WQ = WQ, _WK = WK
+cdef int _BP = BP, _BN = BN, _BB = BB, _BR = BR, _BQ = BQ, _BK = BK
 cdef int _EN_PASSANT = EN_PASSANT
-cdef int _FLAG_MASK  = FLAG_MASK
+cdef int _PROMOTION = PROMOTION
+cdef int _SP1 = SPECIAL_1
+cdef int _SP0 = SPECIAL_0
+cdef int _FLAG_MASK = FLAG_MASK
+cdef int _MASK_SOURCE = MASK_SOURCE
+cdef int _SHIFT_TARGET = SHIFT_TARGET
+cdef int _SHIFT_FLAG = SHIFT_FLAG
 
-def get_smallest_attacker(state, square, colour, occupied):
-    cdef int piece_type
-    cdef int piece_value
-    cdef int attacker_sq
+cdef int[16] _PIECE_VALUES
+_PIECE_VALUES[_PAWN]   = PIECE_VALUES[PAWN]
+_PIECE_VALUES[_KNIGHT] = PIECE_VALUES[KNIGHT]
+_PIECE_VALUES[_BISHOP] = PIECE_VALUES[BISHOP]
+_PIECE_VALUES[_ROOK]   = PIECE_VALUES[ROOK]
+_PIECE_VALUES[_QUEEN]  = PIECE_VALUES[QUEEN]
+_PIECE_VALUES[_KING]   = PIECE_VALUES[KING]
 
-    bitboards = state.bitboards
 
-    if colour == WHITE:
-        pieces = [
-            (PAWN, bitboards[WP], PIECE_VALUES[PAWN]),
-            (KNIGHT, bitboards[WN], PIECE_VALUES[KNIGHT]),
-            (BISHOP, bitboards[WB], PIECE_VALUES[BISHOP]),
-            (ROOK, bitboards[WR], PIECE_VALUES[ROOK]),
-            (QUEEN, bitboards[WQ], PIECE_VALUES[QUEEN]),
-            (KING, bitboards[WK], PIECE_VALUES[KING])
-        ]
-        pawn_attacks = BLACK_PAWN_ATTACKS[square]
+cdef inline unsigned long long _bb(int sq) noexcept:
+    return (<unsigned long long>1) << sq
+
+
+cdef inline int _lsb_sq(unsigned long long bb) noexcept:
+    return lsb(bb)
+
+
+cdef inline int _promo_piece_type(int flag) noexcept:
+    cdef int idx = flag & (_SP1 | _SP0)
+    if idx == 0: return _KNIGHT
+    if idx == _SP0: return _BISHOP
+    if idx == _SP1: return _ROOK
+    return _QUEEN
+
+
+cdef int _least_attacker(State state, int sq, int colour,
+                         unsigned long long occupied,
+                         int* piece_value) noexcept:
+    cdef unsigned long long attackers
+
+    if colour == _WHITE:
+        attackers = BLACK_PAWN_ATTACKS[sq] & state.bitboards[_WP] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_PAWN]
+            return _lsb_sq(attackers)
+
+        attackers = KNIGHT_ATTACKS[sq] & state.bitboards[_WN] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_KNIGHT]
+            return _lsb_sq(attackers)
+
+        attackers = bishop_attacks(sq, occupied) & state.bitboards[_WB] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_BISHOP]
+            return _lsb_sq(attackers)
+
+        attackers = rook_attacks(sq, occupied) & state.bitboards[_WR] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_ROOK]
+            return _lsb_sq(attackers)
+
+        attackers = (bishop_attacks(sq, occupied) | rook_attacks(sq, occupied)) & state.bitboards[_WQ] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_QUEEN]
+            return _lsb_sq(attackers)
+
+        attackers = KING_ATTACKS[sq] & state.bitboards[_WK] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_KING]
+            return _lsb_sq(attackers)
     else:
-        pieces = [
-            (PAWN, bitboards[BP], PIECE_VALUES[PAWN]),
-            (KNIGHT, bitboards[BN], PIECE_VALUES[KNIGHT]),
-            (BISHOP, bitboards[BB], PIECE_VALUES[BISHOP]),
-            (ROOK, bitboards[BR], PIECE_VALUES[ROOK]),
-            (QUEEN, bitboards[BQ], PIECE_VALUES[QUEEN]),
-            (KING, bitboards[BK], PIECE_VALUES[KING])
-        ]
-        pawn_attacks = WHITE_PAWN_ATTACKS[square]
+        attackers = WHITE_PAWN_ATTACKS[sq] & state.bitboards[_BP] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_PAWN]
+            return _lsb_sq(attackers)
 
-    # check each piece type
-    for piece_type, piece_bb, piece_value in pieces:
-        attackers_bb = 0
+        attackers = KNIGHT_ATTACKS[sq] & state.bitboards[_BN] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_KNIGHT]
+            return _lsb_sq(attackers)
 
-        if piece_type == PAWN: attackers_bb = pawn_attacks & piece_bb & occupied
-        elif piece_type == KNIGHT: attackers_bb = KNIGHT_ATTACKS[square] & piece_bb & occupied
-        elif piece_type == KING: attackers_bb = KING_ATTACKS[square] & piece_bb & occupied
-        elif piece_type == BISHOP: attackers_bb = bishop_attacks(square, occupied) & piece_bb & occupied
-        elif piece_type == ROOK: attackers_bb = rook_attacks(square, occupied) & piece_bb & occupied
-        elif piece_type == QUEEN:
-            b_att = bishop_attacks(square, occupied)
-            r_att = rook_attacks(square, occupied)
-            attackers_bb = (b_att | r_att) & piece_bb & occupied
+        attackers = bishop_attacks(sq, occupied) & state.bitboards[_BB] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_BISHOP]
+            return _lsb_sq(attackers)
 
-        if attackers_bb:
-            attacker_sq = (attackers_bb & -attackers_bb).bit_length() - 1
-            return attacker_sq, piece_value, piece_type
+        attackers = rook_attacks(sq, occupied) & state.bitboards[_BR] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_ROOK]
+            return _lsb_sq(attackers)
 
-    return None, 0, None
+        attackers = (bishop_attacks(sq, occupied) | rook_attacks(sq, occupied)) & state.bitboards[_BQ] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_QUEEN]
+            return _lsb_sq(attackers)
 
-def see_full(state, move):
-    """
-    static exchange evaluation for a capture move
-    returns the net material gain/loss from the capture sequence
-    +ve = good for side making the capture
-    """
-    cdef int start_sq
-    cdef int target_sq
-    cdef int flag
-    cdef int victim_type
-    cdef int victim_value
-    cdef int attacker_type
-    cdef int attacker_value
-    cdef int current_attacker_value
-    cdef int next_value
-    cdef int depth
+        attackers = KING_ATTACKS[sq] & state.bitboards[_BK] & occupied
+        if attackers:
+            piece_value[0] = _PIECE_VALUES[_KING]
+            return _lsb_sq(attackers)
 
-    start_sq = move & MASK_SOURCE
-    target_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
+    piece_value[0] = 0
+    return _NULL_SQ
 
-    attacker = state.board[start_sq]
-    victim = state.board[target_sq]
 
-    # en passant captures
-    flag = (move >> SHIFT_FLAG) & _FLAG_MASK
+cdef int see_value(State state, unsigned int move) noexcept:
+    cdef int gain[32]
+    cdef int start_sq, target_sq, flag, moving_piece, moving_type, moving_colour
+    cdef int victim, victim_type, victim_value, current_value
+    cdef int promoted_type, capture_sq, side, current_sq, d
+    cdef unsigned long long occupied
+
+    start_sq  = move & _MASK_SOURCE
+    target_sq = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+    flag      = (move >> _SHIFT_FLAG) & _FLAG_MASK
+
+    moving_piece = state.board[start_sq]
+    if moving_piece == _NULL_SQ:
+        return 0
+
+    moving_type   = moving_piece & ~_WHITE
+    moving_colour = moving_piece & _WHITE
+    victim_value  = 0
+
+    occupied = state.bitboards[_WHITE] | state.bitboards[_BLACK]
+
     if flag == _EN_PASSANT:
-        victim_type = PAWN
-        victim_value = PIECE_VALUES[PAWN]
-    elif victim == _NULL:
-        return 0  # not a capture
+        victim_value = _PIECE_VALUES[_PAWN]
+        capture_sq = target_sq - 8 if moving_colour == _WHITE else target_sq + 8
+        occupied &= ~_bb(capture_sq)
     else:
-        victim_type = victim & ~WHITE
-        victim_value = PIECE_VALUES[victim_type]
+        victim = state.board[target_sq]
+        if victim != _NULL_SQ:
+            victim_type = victim & ~_WHITE
+            victim_value = _PIECE_VALUES[victim_type]
 
-    attacker_type = attacker & ~WHITE
-    attacker_colour = WHITE if (attacker & WHITE) else BLACK
-    attacker_value = PIECE_VALUES[attacker_type]
+    current_value = _PIECE_VALUES[moving_type]
+    gain[0] = victim_value
 
-    # start with capturing the victim
-    gain = [victim_value]
+    if flag & _PROMOTION:
+        promoted_type = _promo_piece_type(flag)
+        current_value = _PIECE_VALUES[promoted_type]
+        gain[0] += current_value - _PIECE_VALUES[_PAWN]
 
-    # simulate the capture sequence
-    occupied = (state.bitboards[WHITE] | state.bitboards[BLACK]) & ~SQUARE_TO_BB[start_sq]
-    current_attacker_value = attacker_value
-    side = not attacker_colour # opponent's turn to recapture
+    side = moving_colour
+    current_sq = start_sq
+    d = 0
 
-    # limit exchanges to prevent infinite loops
-    for depth in range(1, 10):
-        # find next smallest attacker
-        next_sq, next_value, next_type = get_smallest_attacker(state, target_sq, side, occupied)
+    while d < 31:
+        d += 1
+        gain[d] = current_value - gain[d - 1]
+        occupied &= ~_bb(current_sq)
+        side = side ^ _WHITE
+        current_sq = _least_attacker(state, target_sq, side, occupied, &current_value)
+        if current_sq == _NULL_SQ:
+            break
 
-        if next_sq is None:
-            break  # no more attackers
-
-        # record the gain from capturing the previous attacker
-        gain.append(-gain[depth - 1] + current_attacker_value)
-
-        # remove this attacker from occupied squares
-        occupied &= ~SQUARE_TO_BB[next_sq]
-        current_attacker_value = next_value
-        side = not side
-
-    # minimax backwards through the gain array
-    for depth in range(len(gain) - 2, -1, -1):
-        gain[depth] = max(-gain[depth + 1], gain[depth])
+    while d > 1:
+        d -= 1
+        if -gain[d] < gain[d - 1]:
+            gain[d - 1] = -gain[d]
 
     return gain[0]
 
-def see_fast(state, move, threshold=0):
-    """fast SEE check: used for pruning decisions without full SEE calculation"""
-    cdef int target_sq
-    cdef int flag
-    cdef int victim_type
-    cdef int victim_value
 
-    target_sq = (move >> SHIFT_TARGET) & MASK_SOURCE
-    victim = state.board[target_sq]
+cdef bint see_ge(State state, unsigned int move, int threshold) noexcept:
+    return see_value(state, move) >= threshold
 
-    flag = (move >> SHIFT_FLAG) & _FLAG_MASK
-    if flag == _EN_PASSANT:
-        victim_value = PIECE_VALUES[PAWN]
-    elif victim == _NULL:
-        return threshold <= 0
-    else:
-        victim_type = victim & ~WHITE
-        victim_value = PIECE_VALUES[victim_type]
 
-    # early exit: victim value alone clears threshold without checking recaptures
-    if victim_value >= threshold:
-        return True
+def see_full(State state, unsigned int move):
+    return see_value(state, move)
 
-    return see_full(state, move) >= threshold
+
+def see_fast(State state, unsigned int move, int threshold=0):
+    return see_ge(state, move, threshold)

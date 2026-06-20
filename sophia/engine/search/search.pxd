@@ -53,6 +53,10 @@ cdef class SearchEngine:
     cdef public int dbg_qnodes
     cdef public int dbg_qstandpat
     cdef public int dbg_qdelta_prunes
+    cdef public int dbg_see_tests
+    cdef public int dbg_see_prunes
+    cdef public int dbg_qsee_tests
+    cdef public int dbg_qsee_prunes
     cdef public object dbg_beta_cutoff_idx
     cdef public int dbg_cutoff_by_tt
     cdef public int dbg_cutoff_by_killer
