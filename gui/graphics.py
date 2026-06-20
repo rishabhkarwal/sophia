@@ -94,6 +94,8 @@ class GUI:
         self.piece_images = {}
         self._load_assets()
 
+        self._last_panel_args = None
+
         # Pre-build shared highlight surface
         self._highlight_surf = pygame.Surface((Layout.SQUARE_SIZE, Layout.SQUARE_SIZE), pygame.SRCALPHA)
         self._highlight_surf.fill(Palette.HIGHLIGHT)
@@ -166,14 +168,10 @@ class GUI:
         w_mat_list, b_mat_list, w_score, b_score = self._calculate_material(board)
 
         is_white_turn = (board.turn == chess.WHITE) and not result_text
-        self._draw_panel(
-            white_engine, black_engine,
-            game_num, total,
-            w_time, b_time,
-            is_white_turn, result_text,
-            board,
-            w_mat_list, b_mat_list, w_score, b_score
-        )
+        panel_args = (white_engine, black_engine, game_num, total, w_time, b_time,
+                      is_white_turn, result_text, board, w_mat_list, b_mat_list, w_score, b_score)
+        self._last_panel_args = panel_args
+        self._draw_panel(*panel_args)
 
         self._present()
         self.clock.tick(fps)
@@ -233,6 +231,9 @@ class GUI:
 
             # draw moving piece at interpolated position
             self.screen.blit(img, (int(cx), int(cy)))
+
+            if self._last_panel_args:
+                self._draw_panel(*self._last_panel_args)
 
             self.handle_events()
             self._present()
