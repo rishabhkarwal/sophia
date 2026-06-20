@@ -28,8 +28,7 @@ from engine.core.move import (
 from engine.board.state cimport State
 from engine.moves.legality cimport is_legal, is_square_attacked
 
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, BISHOP_MASKS, ROOK_MASKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
-from engine.moves.precomputed import BISHOP_TABLE, ROOK_TABLE
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
 
 cdef int _WP = WP, _WN = WN, _WB = WB, _WR = WR, _WQ = WQ, _WK = WK
 cdef int _BP = BP, _BN = BN, _BB = BB, _BR = BR, _BQ = BQ, _BK = BK
@@ -229,7 +228,7 @@ cdef void _gen_bishop_moves(unsigned long long pieces, list moves,
                              unsigned long long active,
                              unsigned long long enemy,
                              bint captures_only) noexcept:
-    cdef unsigned long long lsb_bb, targets, t_lsb, mask
+    cdef unsigned long long lsb_bb, targets, t_lsb
     cdef int from_sq, to_sq, flag
 
     while pieces:
@@ -237,8 +236,7 @@ cdef void _gen_bishop_moves(unsigned long long pieces, list moves,
         from_sq = lsb_bb.bit_length() - 1
         pieces &= pieces - 1
 
-        mask    = BISHOP_MASKS[from_sq]
-        targets = BISHOP_TABLE[from_sq][all_pieces & mask] & ~active
+        targets = bishop_attacks(from_sq, all_pieces) & ~active
         if captures_only:
             targets &= enemy
 
@@ -255,7 +253,7 @@ cdef void _gen_rook_moves(unsigned long long pieces, list moves,
                            unsigned long long active,
                            unsigned long long enemy,
                            bint captures_only) noexcept:
-    cdef unsigned long long lsb_bb, targets, t_lsb, mask
+    cdef unsigned long long lsb_bb, targets, t_lsb
     cdef int from_sq, to_sq, flag
 
     while pieces:
@@ -263,8 +261,7 @@ cdef void _gen_rook_moves(unsigned long long pieces, list moves,
         from_sq = lsb_bb.bit_length() - 1
         pieces &= pieces - 1
 
-        mask    = ROOK_MASKS[from_sq]
-        targets = ROOK_TABLE[from_sq][all_pieces & mask] & ~active
+        targets = rook_attacks(from_sq, all_pieces) & ~active
         if captures_only:
             targets &= enemy
 
@@ -281,7 +278,7 @@ cdef void _gen_queen_moves(unsigned long long pieces, list moves,
                             unsigned long long active,
                             unsigned long long enemy,
                             bint captures_only) noexcept:
-    cdef unsigned long long lsb_bb, targets, t_lsb, r_mask, b_mask
+    cdef unsigned long long lsb_bb, targets, t_lsb
     cdef int from_sq, to_sq, flag
 
     while pieces:
@@ -289,10 +286,8 @@ cdef void _gen_queen_moves(unsigned long long pieces, list moves,
         from_sq = lsb_bb.bit_length() - 1
         pieces &= pieces - 1
 
-        r_mask  = ROOK_MASKS[from_sq]
-        b_mask  = BISHOP_MASKS[from_sq]
-        targets = (ROOK_TABLE[from_sq][all_pieces & r_mask] |
-                   BISHOP_TABLE[from_sq][all_pieces & b_mask]) & ~active
+        targets = (rook_attacks(from_sq, all_pieces) |
+                   bishop_attacks(from_sq, all_pieces)) & ~active
         if captures_only:
             targets &= enemy
 

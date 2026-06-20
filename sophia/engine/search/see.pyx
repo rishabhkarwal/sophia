@@ -5,8 +5,7 @@ from engine.core.constants import (
     BP, BN, BB, BR, BQ, BK,
 )
 from engine.core.move import SHIFT_TARGET, EN_PASSANT, SHIFT_FLAG, FLAG_MASK
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, BISHOP_MASKS, ROOK_MASKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
-from engine.moves.precomputed import BISHOP_TABLE, ROOK_TABLE
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
 
 cdef int _EN_PASSANT = EN_PASSANT
 cdef int _FLAG_MASK  = FLAG_MASK
@@ -46,11 +45,11 @@ def get_smallest_attacker(state, square, colour, occupied):
         if piece_type == PAWN: attackers_bb = pawn_attacks & piece_bb & occupied
         elif piece_type == KNIGHT: attackers_bb = KNIGHT_ATTACKS[square] & piece_bb & occupied
         elif piece_type == KING: attackers_bb = KING_ATTACKS[square] & piece_bb & occupied
-        elif piece_type == BISHOP: attackers_bb = BISHOP_TABLE[square][occupied & BISHOP_MASKS[square]] & piece_bb & occupied
-        elif piece_type == ROOK: attackers_bb = ROOK_TABLE[square][occupied & ROOK_MASKS[square]] & piece_bb & occupied
+        elif piece_type == BISHOP: attackers_bb = bishop_attacks(square, occupied) & piece_bb & occupied
+        elif piece_type == ROOK: attackers_bb = rook_attacks(square, occupied) & piece_bb & occupied
         elif piece_type == QUEEN:
-            b_att = BISHOP_TABLE[square][occupied & BISHOP_MASKS[square]]
-            r_att = ROOK_TABLE[square][occupied & ROOK_MASKS[square]]
+            b_att = bishop_attacks(square, occupied)
+            r_att = rook_attacks(square, occupied)
             attackers_bb = (b_att | r_att) & piece_bb & occupied
 
         if attackers_bb:

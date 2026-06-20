@@ -10,8 +10,7 @@ from engine.core.constants import (
     MASK_SOURCE, SQUARE_TO_BB,
     WHITE_PIECES, BLACK_PIECES
 )
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, BISHOP_MASKS, ROOK_MASKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS
-from engine.moves.precomputed import BISHOP_TABLE, ROOK_TABLE
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
 from engine.core.move import SHIFT_TARGET
 from engine.core.move cimport _pack
 
@@ -35,8 +34,8 @@ cdef bint is_square_attacked(State state, int sq, bint by_white) noexcept:
         all_pieces = bbs[0][_WHITE] | bbs[0][_BLACK]
         queens     = bbs[0][_WQ]
 
-        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bbs[0][_WB] | queens): return True
-        if ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (bbs[0][_WR] | queens): return True
+        if bishop_attacks(sq, all_pieces) & (bbs[0][_WB] | queens): return True
+        if rook_attacks(sq, all_pieces)   & (bbs[0][_WR] | queens): return True
     else:
         if WHITE_PAWN_ATTACKS[sq] & bbs[0][_BP]: return True
         if KNIGHT_ATTACKS[sq]     & bbs[0][_BN]: return True
@@ -45,8 +44,8 @@ cdef bint is_square_attacked(State state, int sq, bint by_white) noexcept:
         all_pieces = bbs[0][_WHITE] | bbs[0][_BLACK]
         queens     = bbs[0][_BQ]
 
-        if BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (bbs[0][_BB] | queens): return True
-        if ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (bbs[0][_BR] | queens): return True
+        if bishop_attacks(sq, all_pieces) & (bbs[0][_BB] | queens): return True
+        if rook_attacks(sq, all_pieces)   & (bbs[0][_BR] | queens): return True
 
     return False
 
@@ -120,6 +119,6 @@ def get_attackers(State state, int sq, bint colour):
     ka = KING_ATTACKS[sq] & state.bitboards[K]
     if ka: attackers |= ka
 
-    attackers |= BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & (state.bitboards[B] | state.bitboards[Q])
-    attackers |= ROOK_TABLE[sq][all_pieces   & ROOK_MASKS[sq]]   & (state.bitboards[R] | state.bitboards[Q])
+    attackers |= bishop_attacks(sq, all_pieces) & (state.bitboards[B] | state.bitboards[Q])
+    attackers |= rook_attacks(sq, all_pieces)   & (state.bitboards[R] | state.bitboards[Q])
     return attackers

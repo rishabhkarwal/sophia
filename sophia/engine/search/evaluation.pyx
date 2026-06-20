@@ -14,8 +14,7 @@ from engine.core.constants import (
     KNIGHT_MOBILITY, BISHOP_MOBILITY, ROOK_MOBILITY, QUEEN_MOBILITY,
     WINNING_THRESHOLD, LOSING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE
 )
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, BISHOP_MASKS, ROOK_MASKS
-from engine.moves.precomputed import BISHOP_TABLE, ROOK_TABLE
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, bishop_attacks, rook_attacks
 from engine.search.psqt import PSQTs
 from engine.core.zobrist import ZOBRIST_KEYS
 import engine.core.constants as _const
@@ -528,7 +527,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[WB]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount(BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & ~state.bitboards[WHITE])
+            legal_squares = popcount(bishop_attacks(sq, all_pieces) & ~state.bitboards[WHITE])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -538,7 +537,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[WR]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount(ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & ~state.bitboards[WHITE])
+            legal_squares = popcount(rook_attacks(sq, all_pieces) & ~state.bitboards[WHITE])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -548,8 +547,8 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[WQ]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount((BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] |
-                                      ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]]) & ~state.bitboards[WHITE])
+            legal_squares = popcount((bishop_attacks(sq, all_pieces) |
+                                      rook_attacks(sq, all_pieces)) & ~state.bitboards[WHITE])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -574,7 +573,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[BB]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount(BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] & ~state.bitboards[BLACK])
+            legal_squares = popcount(bishop_attacks(sq, all_pieces) & ~state.bitboards[BLACK])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -584,7 +583,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[BR]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount(ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]] & ~state.bitboards[BLACK])
+            legal_squares = popcount(rook_attacks(sq, all_pieces) & ~state.bitboards[BLACK])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -594,8 +593,8 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         piece_bb = state.bitboards[BQ]
         while piece_bb:
             sq = lsb(piece_bb)
-            legal_squares = popcount((BISHOP_TABLE[sq][all_pieces & BISHOP_MASKS[sq]] |
-                                      ROOK_TABLE[sq][all_pieces & ROOK_MASKS[sq]]) & ~state.bitboards[BLACK])
+            legal_squares = popcount((bishop_attacks(sq, all_pieces) |
+                                      rook_attacks(sq, all_pieces)) & ~state.bitboards[BLACK])
             if legal_squares == 0:
                 mobility_score -= TRAPPED_PIECE_PENALTY
             else:
@@ -619,7 +618,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         queen_file = queen_sq & 7
         if rooks_bb & FILE_MASKS[queen_file]:
             battery_score += QUEEN_ROOK_BATTERY_BONUS
-        if rooks_bb & BISHOP_TABLE[queen_sq][all_pieces & BISHOP_MASKS[queen_sq]]:
+        if rooks_bb & bishop_attacks(queen_sq, all_pieces):
             battery_score += QUEEN_ROOK_BATTERY_BONUS // 2
     evaluation += battery_score
     dbg_battery += battery_score
@@ -636,7 +635,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         queen_file = queen_sq & 7
         if rooks_bb & FILE_MASKS[queen_file]:
             battery_score += QUEEN_ROOK_BATTERY_BONUS
-        if rooks_bb & BISHOP_TABLE[queen_sq][all_pieces & BISHOP_MASKS[queen_sq]]:
+        if rooks_bb & bishop_attacks(queen_sq, all_pieces):
             battery_score += QUEEN_ROOK_BATTERY_BONUS // 2
     evaluation -= battery_score
     dbg_battery -= battery_score
