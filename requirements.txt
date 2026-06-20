@@ -2,3 +2,7 @@ Cython
 python-chess
 pygame
 setuptools
+# Stockfish binary required for the eval bar (not a pip package)
+# macOS:   brew install stockfish
+# linux:   apt install stockfish  /  dnf install stockfish
+# windows: download from https://stockfishchess.org/download/

@@ -36,21 +36,24 @@ class Palette:
 
 
 class Layout:
-    BOARD_CONTAINER_SIZE = 640
     PANEL_WIDTH = 340
-    WINDOW_W = BOARD_CONTAINER_SIZE + PANEL_WIDTH
-    WINDOW_H = BOARD_CONTAINER_SIZE
+    SQUARE_SIZE = 72
+    ACTUAL_BOARD_PIXELS = SQUARE_SIZE * 8   # 576
+    OFFSET_Y = 32
 
-    TARGET_PADDING = 30
-    AVAILABLE_SPACE = BOARD_CONTAINER_SIZE - (TARGET_PADDING * 2)
-    SQUARE_SIZE = AVAILABLE_SPACE // 8
+    # standard (no eval bar): symmetric padding on all sides
+    OFFSET_X = 32
+    BOARD_CONTAINER_W = OFFSET_X + ACTUAL_BOARD_PIXELS + 32   # 640
+    BOARD_CONTAINER_H = OFFSET_Y + ACTUAL_BOARD_PIXELS + 32   # 640
+    WINDOW_W = BOARD_CONTAINER_W + PANEL_WIDTH                 # 980
+    WINDOW_H = BOARD_CONTAINER_H                               # 640
 
-    ACTUAL_BOARD_PIXELS = SQUARE_SIZE * 8
-    OFFSET_X = (BOARD_CONTAINER_SIZE - ACTUAL_BOARD_PIXELS) // 2
-    OFFSET_Y = (BOARD_CONTAINER_SIZE - ACTUAL_BOARD_PIXELS) // 2
+    # eval-bar variant
+    EVAL_OFFSET_X = 64
+    EVAL_BOARD_CONTAINER_W = EVAL_OFFSET_X + ACTUAL_BOARD_PIXELS + 32   # 672
+    EVAL_WINDOW_W = EVAL_BOARD_CONTAINER_W + PANEL_WIDTH                 # 1012
 
     ASSETS_DIR = 'gui/assets'
-
     CARD_RADIUS = 10
     PANEL_RADIUS = 8
 
@@ -60,16 +63,22 @@ UNICODE_PIECES = {
     chess.WHITE: {'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚'}
 }
 
-fps = 60
+fps = 120
 
 
 class GUI:
-    def __init__(self):
+    def __init__(self, eval_bar: bool = False):
+        # pick layout variant based on whether the eval bar is active
+        self.eval_bar = eval_bar
+        self._offset_x = Layout.EVAL_OFFSET_X if eval_bar else Layout.OFFSET_X
+        self._window_w = Layout.EVAL_WINDOW_W if eval_bar else Layout.WINDOW_W
+        self._board_container_w = Layout.EVAL_BOARD_CONTAINER_W if eval_bar else Layout.BOARD_CONTAINER_W
+
         os.environ['SDL_VIDEO_CENTERED'] = '1'
         pygame.init()
         pygame.display.set_caption("Engine Tournament")
-        self._win = pygame.display.set_mode((Layout.WINDOW_W, Layout.WINDOW_H), pygame.RESIZABLE)
-        self.screen = pygame.Surface((Layout.WINDOW_W, Layout.WINDOW_H))
+        self._win = pygame.display.set_mode((self._window_w, Layout.WINDOW_H), pygame.RESIZABLE)
+        self.screen = pygame.Surface((self._window_w, Layout.WINDOW_H))
         self.clock = pygame.time.Clock()
 
         self.font_header = pygame.font.SysFont("Helvetica Neue", 22, bold=True)
@@ -95,8 +104,11 @@ class GUI:
         self._load_assets()
 
         self._last_panel_args = None
+        self._last_eval_cp = 0
+        self._last_eval_mate: int | None = None
+        self._displayed_eval_cp = 0.0  # smoothly animated toward last eval
 
-        # Pre-build shared highlight surface
+        # pre-build shared highlight surface
         self._highlight_surf = pygame.Surface((Layout.SQUARE_SIZE, Layout.SQUARE_SIZE), pygame.SRCALPHA)
         self._highlight_surf.fill(Palette.HIGHLIGHT)
 
@@ -124,8 +136,8 @@ class GUI:
 
     def _present(self):
         ww, wh = self._win.get_size()
-        scale = min(ww / Layout.WINDOW_W, wh / Layout.WINDOW_H)
-        scaled_w = int(Layout.WINDOW_W * scale)
+        scale = min(ww / self._window_w, wh / Layout.WINDOW_H)
+        scaled_w = int(self._window_w * scale)
         scaled_h = int(Layout.WINDOW_H * scale)
         scaled = pygame.transform.smoothscale(self.screen, (scaled_w, scaled_h))
         self._win.fill(Palette.BG)
@@ -144,18 +156,81 @@ class GUI:
             elif event.type == pygame.MOUSEWHEEL:
                 self.scroll_y -= event.y * self.scroll_speed
             elif event.type == pygame.VIDEORESIZE:
-                scale = max(event.w / Layout.WINDOW_W, event.h / Layout.WINDOW_H)
-                scale = max(scale, Layout.BOARD_CONTAINER_SIZE / Layout.WINDOW_H)
-                w = int(Layout.WINDOW_W * scale)
+                scale = max(event.w / self._window_w, event.h / Layout.WINDOW_H)
+                scale = max(scale, self._board_container_w / self._window_w)
+                w = int(self._window_w * scale)
                 h = int(Layout.WINDOW_H * scale)
                 self._win = pygame.display.set_mode((w, h), pygame.RESIZABLE)
 
-    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text=""):
+    def _draw_eval_bar(self, cp: float):
+        """chess.com-style eval bar"""
+        BAR_W = 26
+        RADIUS = 2
+        BAR_X = (self._offset_x - BAR_W) // 2
+        BAR_Y = Layout.OFFSET_Y
+        BAR_H = Layout.ACTUAL_BOARD_PIXELS
+
+        # lerp at same visual speed regardless of fps
+        self._displayed_eval_cp += (cp - self._displayed_eval_cp) * 0.05
+        disp = self._displayed_eval_cp
+
+        clamped = max(-800.0, min(800.0, disp))
+        white_frac = 0.5 + clamped / 1600.0
+        black_h = int(BAR_H * (1.0 - white_frac))
+        white_h = BAR_H - black_h
+
+        # draw into offscreen surface so rounded clip works cleanly
+        bar = pygame.Surface((BAR_W, BAR_H), pygame.SRCALPHA)
+
+        # full bar in black first
+        pygame.draw.rect(bar, (0, 0, 0), (0, 0, BAR_W, BAR_H), border_radius=RADIUS)
+
+        # white section from bottom — blit a full white rect clipped to bottom rows
+        if white_h > 0:
+            white_surf = pygame.Surface((BAR_W, BAR_H), pygame.SRCALPHA)
+            pygame.draw.rect(white_surf, (255, 255, 255),
+                             (0, 0, BAR_W, BAR_H), border_radius=RADIUS)
+            bar.blit(white_surf, (0, black_h),
+                     area=pygame.Rect(0, black_h, BAR_W, white_h))
+
+        self.screen.blit(bar, (BAR_X, BAR_Y))
+
+        # eval label: bottom of bar for white winning, top for black
+        mate = self._last_eval_mate
+        cp_int = int(self._last_eval_cp)
+
+        if mate is not None:
+            label = f"M{abs(mate)}"
+        else:
+            label = f"{abs(cp_int) / 100:.1f}"
+
+        white_winning = cp_int >= 0
+        text_colour = (0, 0, 0) if white_winning else (255, 255, 255)
+        lbl_surf = self.font_role.render(label, True, text_colour)
+        lbl_x = BAR_X + BAR_W // 2 - lbl_surf.get_width() // 2
+        MARGIN = 5
+
+        if white_winning:
+            # anchor to bottom of bar
+            lbl_y = BAR_Y + BAR_H - lbl_surf.get_height() - MARGIN
+        else:
+            # anchor to top of bar
+            lbl_y = BAR_Y + MARGIN
+
+        self.screen.blit(lbl_surf, (lbl_x, lbl_y))
+
+    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None):
+        if eval_cp is not None:
+            self._last_eval_cp = eval_cp
+        self._last_eval_mate = eval_mate
         self.screen.fill(Palette.BG)
+
+        if self.eval_bar:
+            self._draw_eval_bar(self._last_eval_cp)
 
         # board frame with rounded corners
         frame_rect = pygame.Rect(
-            Layout.OFFSET_X - 3,
+            self._offset_x - 3,
             Layout.OFFSET_Y - 3,
             Layout.ACTUAL_BOARD_PIXELS + 6,
             Layout.ACTUAL_BOARD_PIXELS + 6
@@ -190,9 +265,9 @@ class GUI:
         fc, fr = chess.square_file(move.from_square), chess.square_rank(move.from_square)
         tc, tr = chess.square_file(move.to_square), chess.square_rank(move.to_square)
 
-        sx = Layout.OFFSET_X + fc * Layout.SQUARE_SIZE
+        sx = self._offset_x + fc * Layout.SQUARE_SIZE
         sy = Layout.OFFSET_Y + (7 - fr) * Layout.SQUARE_SIZE
-        ex = Layout.OFFSET_X + tc * Layout.SQUARE_SIZE
+        ex = self._offset_x + tc * Layout.SQUARE_SIZE
         ey = Layout.OFFSET_Y + (7 - tr) * Layout.SQUARE_SIZE
 
         duration = 0.12  # seconds
@@ -208,7 +283,7 @@ class GUI:
             self.screen.fill(Palette.BG)
 
             frame_rect = pygame.Rect(
-                Layout.OFFSET_X - 3, Layout.OFFSET_Y - 3,
+                self._offset_x - 3, Layout.OFFSET_Y - 3,
                 Layout.ACTUAL_BOARD_PIXELS + 6, Layout.ACTUAL_BOARD_PIXELS + 6
             )
             pygame.draw.rect(self.screen, Palette.BORDER, frame_rect, width=2, border_radius=4)
@@ -226,11 +301,14 @@ class GUI:
                         pk = f"{'w' if p.color == chess.WHITE else 'b'}{p.symbol().lower()}"
                         pi = self._get_piece_img(pk)
                         if pi:
-                            self.screen.blit(pi, (Layout.OFFSET_X + c * Layout.SQUARE_SIZE,
+                            self.screen.blit(pi, (self._offset_x + c * Layout.SQUARE_SIZE,
                                                    Layout.OFFSET_Y + r * Layout.SQUARE_SIZE))
 
             # draw moving piece at interpolated position
             self.screen.blit(img, (int(cx), int(cy)))
+
+            if self.eval_bar:
+                self._draw_eval_bar(self._last_eval_cp)
 
             if self._last_panel_args:
                 self._draw_panel(*self._last_panel_args)
@@ -244,7 +322,7 @@ class GUI:
         for r in range(8):
             for c in range(8):
                 color = Palette.LIGHT_SQ if (r + c) % 2 == 0 else Palette.DARK_SQ
-                x = Layout.OFFSET_X + c * Layout.SQUARE_SIZE
+                x = self._offset_x + c * Layout.SQUARE_SIZE
                 y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
 
@@ -291,7 +369,7 @@ class GUI:
         for r in range(8):
             for c in range(8):
                 color = Palette.LIGHT_SQ if (r + c) % 2 == 0 else Palette.DARK_SQ
-                x = Layout.OFFSET_X + c * Layout.SQUARE_SIZE
+                x = self._offset_x + c * Layout.SQUARE_SIZE
                 y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
 
@@ -320,12 +398,12 @@ class GUI:
                     key = f"{'w' if piece.color == chess.WHITE else 'b'}{piece.symbol().lower()}"
                     img = self._get_piece_img(key)
                     if img:
-                        x = Layout.OFFSET_X + c * Layout.SQUARE_SIZE
+                        x = self._offset_x + c * Layout.SQUARE_SIZE
                         y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                         self.screen.blit(img, (x, y))
 
     def _draw_panel(self, w_eng, b_eng, game, total, w_time, b_time, white_active, result, board, w_cap, b_cap, w_sc, b_sc):
-        panel_x = Layout.BOARD_CONTAINER_SIZE
+        panel_x = self._board_container_w
         panel_rect = pygame.Rect(panel_x, 0, Layout.PANEL_WIDTH, Layout.WINDOW_H)
         pygame.draw.rect(self.screen, Palette.PANEL_BG, panel_rect)
 
@@ -497,7 +575,7 @@ class GUI:
         # centered rounded card over the board
         card_w = 260
         card_h = 64
-        cx = Layout.BOARD_CONTAINER_SIZE // 2
+        cx = self._board_container_w // 2
         cy = Layout.WINDOW_H // 2
 
         card_rect = pygame.Rect(cx - card_w // 2, cy - card_h // 2, card_w, card_h)

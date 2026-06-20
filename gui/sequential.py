@@ -1,6 +1,7 @@
 from gui.config import Config
 from gui.engine import Wrapper
 from gui.console import log, log_error, log_info, log_engine, Colour
+from gui.evaluator import Evaluator
 from gui.graphics import GUI
 
 import chess
@@ -14,7 +15,8 @@ import threading
 class SequentialTournament:
     def __init__(self, config: Config):
         self.cfg = config
-        self.gui = GUI()
+        self.evaluator = Evaluator()
+        self.gui = GUI(eval_bar=self.evaluator.available)
 
         self.engine_1 = Wrapper(self.cfg.engine_1_path, console_colour=Colour.CYAN)
         self.engine_1.name = self.cfg.engine_1_name
@@ -35,11 +37,13 @@ class SequentialTournament:
         finally:
             self.engine_1.stop()
             self.engine_2.stop()
+            self.evaluator.quit()
             self.gui.quit()
             self._print_final_results()
 
     def _play_game(self, game_number):
         board = chess.Board()
+        self.evaluator.update_position(board)
 
         if game_number & 1: white_engine, black_engine = self.engine_1, self.engine_2
         else: white_engine, black_engine = self.engine_2, self.engine_1
@@ -126,10 +130,11 @@ class SequentialTournament:
                         break
 
                 self.gui.handle_events()
+                ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
                 self.gui.draw(
                     board, white_engine, black_engine,
                     game_number, self.cfg.total_games,
-                    w_disp, b_disp, result_text
+                    w_disp, b_disp, result_text, **ev,
                 )
                 bestmove_received.wait(timeout=0.05)
 
@@ -152,6 +157,7 @@ class SequentialTournament:
                         if move in board.legal_moves:
                             self.gui.animate_move(board, move)
                             board.push(move)
+                            self.evaluator.update_position(board)
                         else:
                             result_text = "0-1" if is_white else "1-0"
                             termination_reason = f"Illegal Move ({best_move_str})"
@@ -197,7 +203,8 @@ class SequentialTournament:
         end_time = time.time()
         while time.time() - end_time < 1:
             self.gui.handle_events()
-            self.gui.draw(board, white_engine, black_engine, game_number, self.cfg.total_games, w_time, b_time, result_text)
+            ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
+            self.gui.draw(board, white_engine, black_engine, game_number, self.cfg.total_games, w_time, b_time, result_text, **ev)
 
     def _save_pgn(self, board, white, black, result, termination, round_num):
         try:
