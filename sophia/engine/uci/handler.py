@@ -38,6 +38,7 @@ class UCI:
         self._ponder_result = None
         self._ponder_args = None
         self._ponder_time_limit = None
+        self._search_thread = None
 
     def run(self):
         while True:
@@ -86,6 +87,7 @@ class UCI:
         depth_limit = None
         nodes_limit = None
         is_ponder = False
+        is_infinite = False
 
         try:
             for i in range(len(args)):
@@ -98,6 +100,7 @@ class UCI:
                 elif token == 'depth': depth_limit = int(args[i + 1])
                 elif token == 'nodes': nodes_limit = int(args[i + 1])
                 elif token == 'ponder': is_ponder = True
+                elif token == 'infinite': depth_limit = None; nodes_limit = None; is_infinite = True
         except IndexError: pass
 
         opponent_time = b_time if self.state.is_white else w_time
@@ -105,7 +108,9 @@ class UCI:
 
         time_limit = DEFAULT_TIME_LIMIT
 
-        if move_time:
+        if is_infinite:
+            time_limit = INFINITE_TIME
+        elif move_time:
             time_limit = move_time
         elif w_time is not None and b_time is not None:
             my_time = w_time if self.state.is_white else b_time
@@ -133,6 +138,14 @@ class UCI:
                 self.engine.stop_flag.set()
                 self._ponder_thread.join(timeout=5.0)
             self._ponder_thread = None
+
+    def _stop_search(self):
+        """signal normal search thread to stop and wait for bestmove to be emitted"""
+        if self._search_thread is not None:
+            if self._search_thread.is_alive():
+                self.engine.stop_flag.set()
+                self._search_thread.join(timeout=5.0)
+            self._search_thread = None
         self._ponder_args = None
         self._ponder_time_limit = None
 
@@ -167,6 +180,28 @@ class UCI:
 
         return book_move, ponder_suffix, book_pct, book_nodes, book_ms, book_nps
 
+    def _run_search(self, search_state, time_limit, opponent_time, depth_limit, nodes_limit, is_movetime):
+        """background normal search — emits bestmove when done"""
+        self.engine.time_limit = time_limit
+        try:
+            best_move = self.engine.get_best_move(search_state, opponent_time, depth_limit, nodes_limit, is_movetime)
+
+            if isinstance(best_move, str): move_str = best_move
+            elif best_move is not None: move_str = move_to_uci(best_move)
+            else: move_str = '0000'
+
+            ponder_suffix = ''
+            if move_str != '0000' and self.engine.ponder_move:
+                ponder_suffix = f' ponder {self.engine.ponder_move}'
+
+            send_command(f'bestmove {move_str}{ponder_suffix}')
+
+        except Exception as e:
+            send_info_string(f"error: {e}")
+            send_info_string(traceback.format_exc())
+            send_command('bestmove 0000')
+        self._search_thread = None
+
     def _run_ponder(self, search_state, opponent_time):
         """background ponder search — stores result but does NOT emit bestmove"""
         try:
@@ -191,7 +226,8 @@ class UCI:
     def handle_go(self, args):
         time_limit, opponent_time, depth_limit, nodes_limit, is_movetime, is_ponder = self._compute_time_limit(args)
 
-        # stop any in-flight ponder; discard its result (it was for the wrong position)
+        # stop any in-flight search or ponder; discard results (wrong position)
+        self._stop_search()
         self._stop_ponder()
         self.engine.stop_flag.clear()
         with self._ponder_lock:
@@ -235,26 +271,14 @@ class UCI:
             send_command(f'bestmove {book_move}{ponder_suffix}')
             return
 
-        # search
+        # search on a background thread so stop/isready are processed during the search
         search_state = self.state.clone()
-        self.engine.time_limit = time_limit
-        try:
-            best_move = self.engine.get_best_move(search_state, opponent_time, depth_limit, nodes_limit, is_movetime)
-
-            if isinstance(best_move, str): move_str = best_move
-            elif best_move is not None: move_str = move_to_uci(best_move)
-            else: move_str = '0000'
-
-            ponder_suffix = ''
-            if move_str != '0000' and self.engine.ponder_move:
-                ponder_suffix = f' ponder {self.engine.ponder_move}'
-
-            send_command(f'bestmove {move_str}{ponder_suffix}')
-
-        except Exception as e:
-            send_info_string(f"error: {e}")
-            send_info_string(traceback.format_exc())
-            send_command('bestmove 0000')
+        self._search_thread = threading.Thread(
+            target=self._run_search,
+            args=(search_state, time_limit, opponent_time, depth_limit, nodes_limit, is_movetime),
+            daemon=True,
+        )
+        self._search_thread.start()
 
     def handle_ponderhit(self):
         """opponent played the predicted move — apply real time limit and wait for result"""
@@ -324,6 +348,8 @@ class UCI:
                 send_command(f'bestmove {move_str}{ponder_suffix}')
             else:
                 send_command('bestmove 0000')
+        elif self._search_thread is not None:
+            self._stop_search()
         else:
             self.engine.stop_flag.set()
 
@@ -334,6 +360,7 @@ class UCI:
         send_command('uciok')
 
     def handle_new_game(self):
+        self._stop_search()
         self._stop_ponder()
         self.engine.stop_flag.clear()
         with self._ponder_lock:
