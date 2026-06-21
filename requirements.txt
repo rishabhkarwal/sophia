@@ -1,4 +1,5 @@
 Cython
+optuna
 python-chess
 pygame
 setuptools
