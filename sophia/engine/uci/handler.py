@@ -151,6 +151,22 @@ class UCI:
             pass
         return None
 
+    def _get_book_bestmove(self, state):
+        book_result = self.book.get_move(state)
+        if not book_result: return None
+
+        book_move, book_pct, book_nodes, book_ms = book_result
+        legal_moves_list = get_legal_moves(state)
+        legal_ucis = {move_to_uci(lm) for lm in legal_moves_list}
+
+        if book_move not in legal_ucis: return None
+
+        book_nps = max(1, int(book_nodes / (book_ms / 1000)))
+        ponder_move = self._book_ponder(state, book_move, legal_moves_list)
+        ponder_suffix = f' ponder {ponder_move}' if ponder_move else ''
+
+        return book_move, ponder_suffix, book_pct, book_nodes, book_ms, book_nps
+
     def _run_ponder(self, search_state, opponent_time):
         """background ponder search — stores result but does NOT emit bestmove"""
         try:
@@ -182,6 +198,18 @@ class UCI:
             self._ponder_result = None
 
         if is_ponder:
+            book_bestmove = self._get_book_bestmove(self.state)
+            if book_bestmove:
+                book_move, ponder_suffix, book_pct, book_nodes, book_ms, book_nps = book_bestmove
+                send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
+
+                with self._ponder_lock:
+                    self._ponder_result = (book_move, ponder_suffix)
+
+                self._ponder_args = args
+                self._ponder_time_limit = time_limit
+                return
+
             # start infinite search in background; ponderhit will apply the real time limit
             self._ponder_args = args
             self._ponder_time_limit = time_limit
@@ -198,24 +226,14 @@ class UCI:
             return
 
         # normal go — book first, then search
-        book_result = self.book.get_move(self.state)
+        book_bestmove = self._get_book_bestmove(self.state)
 
-        if book_result:
+        if book_bestmove:
+            book_move, ponder_suffix, book_pct, book_nodes, book_ms, book_nps = book_bestmove
+            send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
 
-            book_move, book_pct, book_nodes, book_ms = book_result
-            legal_moves_list = get_legal_moves(self.state)
-            legal_ucis = {move_to_uci(lm) for lm in legal_moves_list}
-
-            if book_move in legal_ucis:
-
-                book_nps = max(1, int(book_nodes / (book_ms / 1000)))
-                ponder_move = self._book_ponder(self.state, book_move, legal_moves_list)
-                ponder_suffix = f' ponder {ponder_move}' if ponder_move else ''
-
-                send_command(f'info score cp {book_pct} depth 1 nodes {book_nodes} time {book_ms} nps {book_nps} pv {book_move}')
-
-                send_command(f'bestmove {book_move}{ponder_suffix}')
-                return
+            send_command(f'bestmove {book_move}{ponder_suffix}')
+            return
 
         # search
         search_state = self.state.clone()
@@ -281,6 +299,19 @@ class UCI:
             self._ponder_thread.join(timeout=5.0)
             self._ponder_thread = None
 
+            self._ponder_args = None
+            self._ponder_time_limit = None
+
+            with self._ponder_lock:
+                result = self._ponder_result
+                self._ponder_result = None
+
+            if result:
+                move_str, ponder_suffix = result
+                send_command(f'bestmove {move_str}{ponder_suffix}')
+            else:
+                send_command('bestmove 0000')
+        elif self._ponder_args is not None:
             self._ponder_args = None
             self._ponder_time_limit = None
 
