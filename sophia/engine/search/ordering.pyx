@@ -6,8 +6,14 @@
 from engine.core.constants import (
     WHITE, INFINITY, NULL as _NULL,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MAX_DEPTH, MASK_SOURCE, PIECE_VALUES,
+    MAX_DEPTH, MASK_SOURCE,
     HISTORY_MAX, HISTORY_GRAVITY,
+)
+from engine.core.parameters import (
+    PIECE_VALUES,
+    SCORE_TT_MOVE, SCORE_GOOD_CAP, SCORE_COUNTER_MOVE,
+    SCORE_KILLER_1, SCORE_KILLER_2, SCORE_BAD_CAP,
+    MOVE_REPETITION_PENALTY, MVV_LVA_MULTIPLIER,
 )
 from engine.core.move import (
     CAPTURE, EN_PASSANT, PROMOTION, FLAG_MASK,
@@ -35,15 +41,14 @@ cdef int _QUEEN           = QUEEN
 cdef int _KING            = KING
 cdef int _WHITE           = WHITE
 
-cdef int _SCORE_TT_MOVE      = 2_000_000_000 # highest
-cdef int _SCORE_GOOD_CAP     = 1_000_000_000 # good capture (SEE >= 0)
-cdef int _SCORE_COUNTER_MOVE =   900_000_000
-cdef int _SCORE_KILLER_1     =   800_000_000
-cdef int _SCORE_KILLER_2     =   700_000_000
-cdef int _SCORE_BAD_CAP      =  -100_000_000 # bad capture (SEE < 0), MVV-LVA adjusted
-
-# repetition penalty for moving same piece repeatedly
-cdef int _REPETITION_PENALTY = -25 # (except king)
+cdef int _SCORE_TT_MOVE      = SCORE_TT_MOVE
+cdef int _SCORE_GOOD_CAP     = SCORE_GOOD_CAP
+cdef int _SCORE_COUNTER_MOVE = SCORE_COUNTER_MOVE
+cdef int _SCORE_KILLER_1     = SCORE_KILLER_1
+cdef int _SCORE_KILLER_2     = SCORE_KILLER_2
+cdef int _SCORE_BAD_CAP      = SCORE_BAD_CAP
+cdef int _REPETITION_PENALTY = MOVE_REPETITION_PENALTY
+cdef int _MVV_LVA_MULT       = MVV_LVA_MULTIPLIER
 
 cdef int[16] _PIECE_VALUES
 _PIECE_VALUES[_PAWN]   = PIECE_VALUES[PAWN]
@@ -154,7 +159,7 @@ cdef class MoveOrdering:
                 victim_val = _PIECE_VALUES[victim & ~_WHITE]
 
             attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
-            mvv_lva = 10 * victim_val - attacker_val
+            mvv_lva = _MVV_LVA_MULT * victim_val - attacker_val
 
             if see_ge(state, move, 0):
                 return _SCORE_GOOD_CAP + mvv_lva
@@ -249,7 +254,7 @@ cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
                 victim_val = _PIECE_VALUES[victim & ~_WHITE]
 
             attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
-            mvv_lva = 10 * victim_val - attacker_val
+            mvv_lva = _MVV_LVA_MULT * victim_val - attacker_val
 
             see_ok = see_ge(state, move, 0)
             see_cache[i] = 1 if see_ok else 0

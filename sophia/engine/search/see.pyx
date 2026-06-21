@@ -1,9 +1,10 @@
 from engine.core.constants import (
     WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    PIECE_VALUES, MASK_SOURCE, NULL as _NULL,
+    MASK_SOURCE, NULL as _NULL,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
 )
+from engine.core.parameters import PIECE_VALUES
 from engine.core.move import (
     SHIFT_TARGET, EN_PASSANT, SHIFT_FLAG, FLAG_MASK,
     PROMOTION, SPECIAL_1, SPECIAL_0

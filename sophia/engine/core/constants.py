@@ -35,15 +35,6 @@ BR = BLACK | ROOK    # 8
 BQ = BLACK | QUEEN   # 10
 BK = BLACK | KING    # 14
 
-PIECE_VALUES = {
-    PAWN: 100,
-    KNIGHT: 305,
-    BISHOP: 333,
-    ROOK: 563,
-    QUEEN: 950,
-    KING: 20000
-}
-
 # pieces stored at their natural indices (2-15)
 # white and black aggregate boards at (0-1)
 
@@ -66,96 +57,9 @@ CASTLE_WQ = 0b0010
 CASTLE_BK = 0b0100
 CASTLE_BQ = 0b1000
 
-# evaluation constants
+# sentinel scores
 INFINITY = 100_000
 MATE = 100_000
-
-# pawn structure
-DOUBLED_PAWN_PENALTY = 10
-ISOLATED_PAWN_PENALTY = 15
-PASSED_PAWN_BONUS = [0, 10, 17, 15, 62, 168, 276, 0]
-
-# knight positioning
-KNIGHT_OUTPOST_BONUS = 10
-
-# rook positioning
-ROOK_ON_SEVENTH_RANK = 12
-ROOK_BEHIND_PASSED_PAWN = 10
-
-# piece mobility
-TRAPPED_PIECE_PENALTY = 50
-
-# piece coordination
-ROOK_BATTERY_BONUS = 15
-QUEEN_ROOK_BATTERY_BONUS = 15
-
-# king safety
-KING_PAWN_SHIELD_BONUS = 5
-
-# king activity (endgame)
-KING_TO_CENTRE_BONUS = 15
-KING_TO_ENEMY_PAWNS_BONUS = 15
-
-# core features
-BISHOP_PAIR_BONUS = 20
-ROOK_OPEN_FILE = 15
-ROOK_SEMI_OPEN_FILE = 4
-
-# mobility bonuses (per legal square)
-KNIGHT_MOBILITY = 2
-BISHOP_MOBILITY = 3
-ROOK_MOBILITY = 3
-QUEEN_MOBILITY = 1
-
-# trading behaviour
-WINNING_THRESHOLD = 200
-LOSING_THRESHOLD = -100
-TRADE_BONUS_PER_PIECE = 20
-TRADE_PENALTY_PER_PIECE = 25
-
-# base contempt: engine prefers to play on rather than draw
-CONTEMPT = 100  # centipawns - higher = more aggressive
-
-# repetition penalties based on position evaluation
-REPETITION_PENALTY_WINNING = 500 # MASSIVE penalty when winning
-REPETITION_PENALTY_EQUAL = 100 # strong penalty when equal
-REPETITION_PENALTY_SLIGHT = 150 # when slightly better
-
-# thresholds for different contempt levels
-SLIGHTLY_BETTER_THRESHOLD = 100 # eval > this = prefer to play on
-CLEARLY_WINNING_THRESHOLD = 300 # eval > this = fight hard for win
-CLEARLY_LOSING_THRESHOLD = -300 # eval < this = draw is acceptable
-
-# 50-move rule contempt
-FIFTY_MOVE_CONTEMPT_BASE = 50 # Base contempt at 50 moves
-FIFTY_MOVE_SCALE_START = 90 # Start scaling contempt
-
-# pruning margins
-RAZOR_MARGIN = [0, 240, 280, 300]
-STATIC_NULL_MARGIN = 120
-FUTILITY_MARGIN = [0, 100, 180, 270] # per depth
-
-# late move reductions
-LMR_BASE_REDUCTION = 1
-LMR_MOVE_THRESHOLD = 3 # start LMR after this many moves
-
-# late move pruning
-LMP_BASE = 3
-LMP_MULTIPLIER = 2  # threshold = base + depth * depth * multiplier
-
-# null move pruning
-NMP_BASE_REDUCTION = 2
-NMP_DEPTH_REDUCTION = 3  # use R=3 when depth >= 6
-NMP_EVAL_MARGIN = 200  # extra reduction when eval > beta + margin
-
-# extensions
-CHECK_EXTENSION = 1
-SINGULAR_EXTENSION = 0  # too slow so removed
-SINGULAR_MARGIN = 50
-
-# history
-HISTORY_MAX = 16384
-HISTORY_GRAVITY = 16 # for aging
 
 # file masks
 FILE_A = 0x0101010101010101
@@ -196,7 +100,7 @@ MASK_TARGET = 0b0000111111000000
 MASK_FLAG   = 0b1111000000000000
 
 # bit manipulation
-FLIP_BOARD = 56 # XOR to mirror board
+FLIP_BOARD = 56  # XOR to mirror board
 
 # directional offsets
 NORTH = 8
@@ -208,3 +112,13 @@ WEST  = -EAST
 MAX_DEPTH = 100
 TIME_CHECK_NODES = 1023
 INFINITE_TIME = 1_000_000_000
+
+# history sizing (structural — affects table layout)
+HISTORY_MAX = 16384
+HISTORY_GRAVITY = 16
+
+# fifty-move rule hard limit (halfmoves)
+FIFTY_MOVE_LIMIT = 100
+
+# tablebase coverage in search/syzygy/
+SYZYGY_PIECE_THRESHOLD = 5

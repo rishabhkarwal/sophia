@@ -7,7 +7,14 @@ from engine.board.fen_parser import load_from_fen
 from engine.board.move_exec import make_move, is_repetition
 from engine.moves.generator import get_legal_moves
 from engine.moves.legality import is_in_check
-from engine.core.constants import NAME, AUTHOR, INFINITE_TIME
+from engine.core.constants import (
+    NAME, AUTHOR, INFINITE_TIME,
+)
+from engine.core.parameters import (
+    DEFAULT_TIME_LIMIT, MOVES_TO_GO_MIN, MOVES_TO_GO_LOOKBACK,
+    INCREMENT_FRACTION, LOW_TIME_THRESHOLD, LOW_TIME_DIVISOR,
+    MOVE_OVERHEAD, PONDERHIT_HARD_FACTOR, PONDERHIT_HARD_OFFSET,
+)
 from engine.search.search import SearchEngine
 from engine.uci.utils import send_command, send_info_string
 from engine.core.move import move_to_uci
@@ -96,7 +103,7 @@ class UCI:
         opponent_time = b_time if self.state.is_white else w_time
         if opponent_time is None: opponent_time = INFINITE_TIME
 
-        time_limit = 2000
+        time_limit = DEFAULT_TIME_LIMIT
 
         if move_time:
             time_limit = move_time
@@ -105,14 +112,14 @@ class UCI:
             my_inc = w_inc if self.state.is_white else b_inc
 
             moves_played = self.state.fullmove_number
-            remaining_moves_est = max(20, 50 - moves_played)
+            remaining_moves_est = max(MOVES_TO_GO_MIN, MOVES_TO_GO_LOOKBACK - moves_played)
 
-            time_limit = (my_time / remaining_moves_est) + (my_inc * 0.5)
+            time_limit = (my_time / remaining_moves_est) + (my_inc * INCREMENT_FRACTION)
 
-            if my_time < 10000:
-                time_limit = my_time / 5
+            if my_time < LOW_TIME_THRESHOLD:
+                time_limit = my_time / LOW_TIME_DIVISOR
 
-            overhead = 200
+            overhead = MOVE_OVERHEAD
             time_limit = max(overhead, min(time_limit - overhead, my_time - overhead))
         elif depth_limit is not None or nodes_limit is not None:
             time_limit = INFINITE_TIME
@@ -247,7 +254,7 @@ class UCI:
                 self.engine.hard_time_limit = soft
             else:
                 self.engine.soft_time_limit = soft
-                self.engine.hard_time_limit = min(soft * 1.5, soft + 0.5)
+                self.engine.hard_time_limit = min(soft * PONDERHIT_HARD_FACTOR, soft + PONDERHIT_HARD_OFFSET)
 
             # wait for the search to finish and emit its result
             self._ponder_thread.join(timeout=max(time_limit / 1000.0 + 2.0, 5.0))

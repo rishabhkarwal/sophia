@@ -3,7 +3,7 @@ import chess.syzygy
 import os
 import random
 from engine.search.utils import state_to_board
-from engine.core.constants import WHITE, BLACK
+from engine.core.constants import WHITE, BLACK, SYZYGY_PIECE_THRESHOLD
 from engine.uci.utils import send_info_string
 
 class SyzygyHandler:
@@ -25,7 +25,7 @@ class SyzygyHandler:
         if not self.tablebase: return None
 
         all_pieces = state.bitboards[WHITE] | state.bitboards[BLACK]
-        if all_pieces.bit_count() > 5: return None 
+        if all_pieces.bit_count() > SYZYGY_PIECE_THRESHOLD: return None
 
         try: board = state_to_board(state)
         except Exception: return None

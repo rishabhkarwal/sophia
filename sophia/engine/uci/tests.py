@@ -13,9 +13,10 @@ from engine.core.constants import (
     WHITE, BLACK, NULL,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
-    PIECE_STR, PIECE_VALUES, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
+    PIECE_STR, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     MASK_SOURCE,
 )
+from engine.core.parameters import PIECE_VALUES
 from engine.core.move import SHIFT_TARGET, SHIFT_FLAG, SQUARE_NAMES
 from math import exp
 

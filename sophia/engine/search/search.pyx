@@ -10,16 +10,38 @@ from engine.core.constants import (
     WHITE, BLACK, INFINITY,
     MAX_DEPTH, TIME_CHECK_NODES, INFINITE_TIME,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MASK_SOURCE, NULL as _NULL, PIECE_VALUES,
+    MASK_SOURCE, NULL as _NULL,
+    HISTORY_MAX, HISTORY_GRAVITY,
+    FIFTY_MOVE_LIMIT, SYZYGY_PIECE_THRESHOLD,
+)
+from engine.core.parameters import (
+    PIECE_VALUES,
     RAZOR_MARGIN, STATIC_NULL_MARGIN, FUTILITY_MARGIN,
     LMR_BASE_REDUCTION, LMR_MOVE_THRESHOLD,
+    LMR_MIN_DEPTH, LMR_NON_PV_REDUCTION, LMR_CHECK_PRESSURE_DECREMENT,
+    PHASE_TRANSITION_EXTENSION,
     LMP_BASE, LMP_MULTIPLIER,
     NMP_BASE_REDUCTION, NMP_DEPTH_REDUCTION, NMP_EVAL_MARGIN,
+    NMP_MIN_DEPTH, NMP_DEEP_DEPTH, NMP_EVAL_EXTRA_REDUCTION,
     CHECK_EXTENSION,
-    CONTEMPT, REPETITION_PENALTY_WINNING, REPETITION_PENALTY_EQUAL,
+    CONTEMPT, LOSING_CONTEMPT_SCALE, REPETITION_PENALTY_WINNING, REPETITION_PENALTY_EQUAL,
     REPETITION_PENALTY_SLIGHT, SLIGHTLY_BETTER_THRESHOLD,
     CLEARLY_WINNING_THRESHOLD, CLEARLY_LOSING_THRESHOLD,
     FIFTY_MOVE_CONTEMPT_BASE, FIFTY_MOVE_SCALE_START,
+    ASPIRATION_MIN, ASPIRATION_MAX, ASPIRATION_INIT_SCALE,
+    ASPIRATION_WIDEN_FACTOR, ASPIRATION_STABILITY_COUNT,
+    ASPIRATION_TIGHTEN_SCALE, ASPIRATION_MIN_DEPTH,
+    TIME_HARD_LIMIT_FACTOR, TIME_HARD_LIMIT_OFFSET,
+    TIME_CHECK_SWITCH, TIME_CHECK_TIGHT,
+    TIME_USAGE_LONG, TIME_USAGE_SHORT, TIME_USAGE_TC_THRESHOLD,
+    MATE_SCORE_MARGIN, TIME_PRESSURE_THRESHOLD,
+    TB_WIN_SCORE_MARGIN,
+    IID_MIN_DEPTH, IID_DEPTH_REDUCTION,
+    LMR_HEAVY_THRESHOLD, LMR_HEAVY_REDUCTION,
+    RAZORING_DEPTH_CAP, RFP_DEPTH_CAP, SNMP_DEPTH_CAP,
+    FUTILITY_DEPTH_CAP, LMP_DEPTH_CAP, SEE_PRUNING_DEPTH_CAP,
+    REVERSE_FUTILITY_MARGIN,
+    DEFAULT_TIME_LIMIT,
 )
 from engine.core.move import (
     CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
@@ -59,9 +81,17 @@ cdef int _LMR_THRESH     = LMR_MOVE_THRESHOLD
 cdef int _LMP_BASE       = LMP_BASE
 cdef int _NMP_BASE       = NMP_BASE_REDUCTION
 cdef int _NMP_DEPTH      = NMP_DEPTH_REDUCTION
+cdef int _NMP_MIN_DEPTH  = NMP_MIN_DEPTH
+cdef int _NMP_DEEP_DEPTH = NMP_DEEP_DEPTH
 cdef int _NMP_EVAL_MARGIN = NMP_EVAL_MARGIN
+cdef int _NMP_EVAL_EXTRA_RED = NMP_EVAL_EXTRA_REDUCTION
+cdef int _LMR_MIN_DEPTH  = LMR_MIN_DEPTH
+cdef int _LMR_NON_PV_RED = LMR_NON_PV_REDUCTION
+cdef int _LMR_CHK_DEC    = LMR_CHECK_PRESSURE_DECREMENT
+cdef int _PHASE_EXT      = PHASE_TRANSITION_EXTENSION
 cdef int _STATIC_NULL    = STATIC_NULL_MARGIN
 cdef int _CONTEMPT       = CONTEMPT
+cdef double _LOSING_CONTEMPT_SCALE = LOSING_CONTEMPT_SCALE
 cdef int _REP_WIN        = REPETITION_PENALTY_WINNING
 cdef int _REP_EQUAL      = REPETITION_PENALTY_EQUAL
 cdef int _REP_SLIGHT     = REPETITION_PENALTY_SLIGHT
@@ -78,6 +108,26 @@ cdef int _PAWN_VAL       = PIECE_VALUES[PAWN]
 cdef int _FLAG_EXACT     = FLAG_EXACT
 cdef int _FLAG_LB        = FLAG_LOWERBOUND
 cdef int _FLAG_UB        = FLAG_UPPERBOUND
+cdef int _RFP_MARGIN     = REVERSE_FUTILITY_MARGIN
+cdef int _SYZYGY_THRESH  = SYZYGY_PIECE_THRESHOLD
+cdef int _TB_WIN_MARGIN  = TB_WIN_SCORE_MARGIN
+cdef int _IID_MIN_DEPTH  = IID_MIN_DEPTH
+cdef int _IID_DEPTH_RED  = IID_DEPTH_REDUCTION
+cdef int _LMR_HEAVY_THRESH = LMR_HEAVY_THRESHOLD
+cdef int _LMR_HEAVY_RED  = LMR_HEAVY_REDUCTION
+cdef int _RAZOR_CAP      = RAZORING_DEPTH_CAP
+cdef int _RFP_CAP        = RFP_DEPTH_CAP
+cdef int _SNMP_CAP       = SNMP_DEPTH_CAP
+cdef int _FUTILITY_CAP   = FUTILITY_DEPTH_CAP
+cdef int _LMP_CAP        = LMP_DEPTH_CAP
+cdef int _SEE_CAP        = SEE_PRUNING_DEPTH_CAP
+cdef int _50MV_LIMIT     = FIFTY_MOVE_LIMIT
+cdef int _TIME_PRESS_THRESH = TIME_PRESSURE_THRESHOLD
+cdef int _TIME_CHK_SWITCH   = TIME_CHECK_SWITCH
+cdef int _TIME_CHK_TIGHT    = TIME_CHECK_TIGHT
+cdef int _MATE_MARGIN       = MATE_SCORE_MARGIN
+cdef int _ASP_MIN_DEPTH     = ASPIRATION_MIN_DEPTH
+cdef int _ASP_STAB_COUNT    = ASPIRATION_STABILITY_COUNT
 
 _RAZOR_MARGIN_LIST   = list(RAZOR_MARGIN)
 _FUTILITY_MARGIN_LIST = list(FUTILITY_MARGIN)
@@ -89,7 +139,7 @@ class TimeoutError(Exception):
 
 
 cdef class SearchEngine:
-    def __init__(self, time_limit=2000, tt_size_mb=64):
+    def __init__(self, time_limit=DEFAULT_TIME_LIMIT, tt_size_mb=64):
         self.time_limit = time_limit
         self.tt = TranspositionTable(tt_size_mb)
         self.pawn_hash = PawnHashTable(32)
@@ -103,9 +153,9 @@ cdef class SearchEngine:
         self.root_colour = WHITE
 
         # dynamic aspiration windows
-        self.aspiration_min = 35
-        self.aspiration_max = 500
-        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * 0.8)
+        self.aspiration_min = ASPIRATION_MIN
+        self.aspiration_max = ASPIRATION_MAX
+        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * ASPIRATION_INIT_SCALE)
         self.aspiration_stability_count = 0
 
         self.opponent_time_ms = INFINITE_TIME
@@ -174,7 +224,7 @@ cdef class SearchEngine:
             raise TimeoutError("hard time limit exceeded")
 
     def _update_check_interval(self):
-        self.check_interval = TIME_CHECK_NODES if self.time_limit > 10_000 else 255
+        self.check_interval = TIME_CHECK_NODES if self.time_limit > _TIME_CHK_SWITCH else _TIME_CHK_TIGHT
 
     def _get_pv_line(self, state, max_depth=20):
         pv_moves = []
@@ -276,12 +326,12 @@ cdef class SearchEngine:
         if is_movetime:
             self.hard_time_limit = self.soft_time_limit
         else:
-            self.hard_time_limit = min(self.soft_time_limit * 1.5, self.time_limit / 1000.0 + 0.5)
+            self.hard_time_limit = min(self.soft_time_limit * TIME_HARD_LIMIT_FACTOR, self.time_limit / 1000.0 + TIME_HARD_LIMIT_OFFSET)
         self._update_check_interval()
 
         self.depth_reached = 0
 
-        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * 0.8)
+        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * ASPIRATION_INIT_SCALE)
         self.aspiration_stability_count = 0
 
         moves = generate_pseudo_legal_moves(state)
@@ -319,7 +369,7 @@ cdef class SearchEngine:
                 alpha = -_INFINITY
                 beta = _INFINITY
 
-                if current_depth > 2:
+                if current_depth > _ASP_MIN_DEPTH:
                     alpha = current_score - self.aspiration_current
                     beta = current_score + self.aspiration_current
 
@@ -333,7 +383,7 @@ cdef class SearchEngine:
                             elif failed_low: self.dbg_asp_fail_low += 1
                             else: self.dbg_asp_fail_high += 1
                         send_info_string(f'aspiration failed: {self.aspiration_current}')
-                        self.aspiration_current = min(self.aspiration_current * 2, self.aspiration_max)
+                        self.aspiration_current = min(self.aspiration_current * ASPIRATION_WIDEN_FACTOR, self.aspiration_max)
                         self.aspiration_stability_count = 0
 
                         if failed_low: alpha = current_score - self.aspiration_current
@@ -349,8 +399,8 @@ cdef class SearchEngine:
                             best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
                     else:
                         self.aspiration_stability_count += 1
-                        if self.aspiration_stability_count >= 3:
-                            self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * 0.8))
+                        if self.aspiration_stability_count >= _ASP_STAB_COUNT:
+                            self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * ASPIRATION_TIGHTEN_SCALE))
                             self.aspiration_stability_count = 0
                             if self.aspiration_current > self.aspiration_min: send_info_string(f'aspiration tightened: {self.aspiration_current}')
                 else:
@@ -456,11 +506,11 @@ cdef class SearchEngine:
                     self.dbg_syzygy_probes    = 0
                     self.dbg_syzygy_hits      = 0
 
-                if abs(score) >= _INFINITY - 1000:
+                if abs(score) >= _INFINITY - _MATE_MARGIN:
                     break
 
                 if not is_movetime and depth_limit is None and nodes_limit is None:
-                    time_usage_pct = 0.7 if self.time_limit > 120000 else 0.9
+                    time_usage_pct = TIME_USAGE_LONG if self.time_limit > TIME_USAGE_TC_THRESHOLD else TIME_USAGE_SHORT
                     elapsed = time.time() - self.start_time
                     if elapsed > self.soft_time_limit * time_usage_pct:
                         break
@@ -503,7 +553,7 @@ cdef class SearchEngine:
             make_move(state, move)
             child_depth = depth - 1
             if old_phase > 0 and state.phase == 0:
-                child_depth += 1
+                child_depth += _PHASE_EXT
 
             if i == 0:
                 value = -self._alpha_beta(state, child_depth, -beta, -alpha, ply + 1, move, True, True)
@@ -602,7 +652,7 @@ cdef class SearchEngine:
             if _const.DEBUG: self.dbg_fifty_move_draws += 1
             static_eval = evaluate(state, self.pawn_hash)
 
-            if state.halfmove_clock >= 100:
+            if state.halfmove_clock >= _50MV_LIMIT:
                 if static_eval > _CLEARLY_WIN:
                     return static_eval - _50MV_BASE
                 elif static_eval < _CLEARLY_LOSE:
@@ -610,13 +660,13 @@ cdef class SearchEngine:
                 else:
                     return -_CONTEMPT
             else:
-                progress = (state.halfmove_clock - _50MV_START) / (100 - _50MV_START)
+                progress = (state.halfmove_clock - _50MV_START) / (_50MV_LIMIT - _50MV_START)
                 scaled_contempt = int(_50MV_BASE * progress)
 
                 if static_eval > _CLEARLY_WIN:
                     return static_eval - scaled_contempt
                 elif static_eval < _CLEARLY_LOSE:
-                    return -scaled_contempt // 2
+                    return -<int>(scaled_contempt * _LOSING_CONTEMPT_SCALE)
                 else:
                     return -scaled_contempt
 
@@ -629,14 +679,14 @@ cdef class SearchEngine:
             return 0
 
         all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
-        if all_pieces.bit_count() <= 5:
+        if all_pieces.bit_count() <= _SYZYGY_THRESH:
             if _const.DEBUG: self.dbg_syzygy_probes += 1
             wdl = self.syzygy.probe_wdl(state)
             if wdl is not None:
                 if _const.DEBUG: self.dbg_syzygy_hits += 1
                 self.tbhits += 1
                 dtz = self.syzygy.probe_dtz(state)
-                TB_WIN_SCORE = _INFINITY - 1000
+                TB_WIN_SCORE = _INFINITY - _TB_WIN_MARGIN
 
                 if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
                 elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
@@ -671,9 +721,9 @@ cdef class SearchEngine:
             if _const.DEBUG: self.dbg_check_extensions += 1
 
         # IID
-        if is_pv and depth >= 4 and not _tt_hit:
+        if is_pv and depth >= _IID_MIN_DEPTH and not _tt_hit:
             if _const.DEBUG: self.dbg_iid_triggers += 1
-            reduced_depth = depth - 2
+            reduced_depth = depth - _IID_DEPTH_RED
             self._alpha_beta(state, reduced_depth, alpha, beta, ply, previous_move, True, True)
             _iid_hit = self.tt.probe(<unsigned long long>state.hash,
                                      &_tt_depth, &_tt_score, &_tt_flag, &_tt_move_raw)
@@ -685,7 +735,7 @@ cdef class SearchEngine:
         static_eval = evaluate(state, self.pawn_hash) if not in_check else 0
 
         # razoring
-        if not is_pv and not in_check and depth <= 3 and allow_null:
+        if not is_pv and not in_check and depth <= _RAZOR_CAP and allow_null:
             if depth < len(_RAZOR_MARGIN_LIST) and static_eval + _RAZOR_MARGIN_LIST[depth] < alpha:
                 if _const.DEBUG: self.dbg_razor_attempts += 1
                 razor_score = self._quiescence(state, alpha - 1, alpha, ply)
@@ -694,28 +744,28 @@ cdef class SearchEngine:
                     return razor_score
 
         # reverse futility pruning
-        if not is_pv and not in_check and depth <= 3 and allow_null and state.phase > 0:
-            rfp_margin = 120 * depth
+        if not is_pv and not in_check and depth <= _RFP_CAP and allow_null and state.phase > 0:
+            rfp_margin = _RFP_MARGIN * depth
             if _const.DEBUG: self.dbg_rfp_attempts += 1
             if static_eval - rfp_margin >= beta:
                 if _const.DEBUG: self.dbg_rfp_cutoffs += 1
                 return static_eval - rfp_margin
 
         # static null move pruning
-        if not is_pv and not in_check and depth <= 3 and allow_null and state.phase > 0:
+        if not is_pv and not in_check and depth <= _SNMP_CAP and allow_null and state.phase > 0:
             if _const.DEBUG: self.dbg_snmp_attempts += 1
             if static_eval - _STATIC_NULL >= beta:
                 if _const.DEBUG: self.dbg_snmp_cutoffs += 1
                 return static_eval
 
         # adaptive null move pruning
-        if allow_null and depth >= 3 and not in_check and not is_pv and state.phase > 0:
+        if allow_null and depth >= _NMP_MIN_DEPTH and not in_check and not is_pv and state.phase > 0:
             if _const.DEBUG: self.dbg_nmp_attempts += 1
             make_null_move(state)
 
             reduction = _NMP_BASE
-            if depth >= 6: reduction = _NMP_DEPTH
-            if static_eval > beta + _NMP_EVAL_MARGIN: reduction += 1
+            if depth >= _NMP_DEEP_DEPTH: reduction = _NMP_DEPTH
+            if static_eval > beta + _NMP_EVAL_MARGIN: reduction += _NMP_EVAL_EXTRA_RED
 
             val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, None, False, False)
             unmake_null_move(state)
@@ -726,7 +776,7 @@ cdef class SearchEngine:
 
         # futility pruning
         do_futility = False
-        if not is_pv and not in_check and depth <= 3 and allow_null:
+        if not is_pv and not in_check and depth <= _FUTILITY_CAP and allow_null:
             if depth < len(_FUTILITY_MARGIN_LIST):
                 futility_margin = _FUTILITY_MARGIN_LIST[depth]
                 if static_eval + futility_margin < alpha:
@@ -745,7 +795,7 @@ cdef class SearchEngine:
         legal_moves_count = 0
         quiet_moves_count = 0
 
-        time_pressure_mode = self.opponent_time_ms < 10_000
+        time_pressure_mode = self.opponent_time_ms < _TIME_PRESS_THRESH
 
         score_move_list(&moves, scores, see_cache, state, self.ordering, tt_move, counter, depth, k1, k2)
 
@@ -754,7 +804,7 @@ cdef class SearchEngine:
             move = moves.moves[i]
 
             see_ok = True
-            if (move & _CAPTURE_FLAG) and depth <= 6:
+            if (move & _CAPTURE_FLAG) and depth <= _SEE_CAP:
                 see_ok = see_cache[i] == 1
 
             old_phase = state.phase
@@ -780,7 +830,7 @@ cdef class SearchEngine:
 
             child_depth = depth - 1
             if old_phase > 0 and state.phase == 0:
-                child_depth += 1
+                child_depth += _PHASE_EXT
 
             if do_futility and not is_interesting and not gives_check:
                 if _const.DEBUG: self.dbg_futility_skips += 1
@@ -788,7 +838,7 @@ cdef class SearchEngine:
                 continue
 
             # late move pruning
-            if not is_pv and not in_check and not is_interesting and depth <= 4:
+            if not is_pv and not in_check and not is_interesting and depth <= _LMP_CAP:
                 lmp_threshold = _LMP_BASE + depth * depth * _LMP_MULT
                 if legal_moves_count > lmp_threshold:
                     if _const.DEBUG: self.dbg_lmp_skips += 1
@@ -796,7 +846,7 @@ cdef class SearchEngine:
                     continue
 
             # SEE pruning
-            if (move & _CAPTURE_FLAG) and depth <= 6 and not gives_check:
+            if (move & _CAPTURE_FLAG) and depth <= _SEE_CAP and not gives_check:
                 if _const.DEBUG: self.dbg_see_tests += 1
                 if not see_ok:
                     if _const.DEBUG: self.dbg_see_prunes += 1
@@ -806,13 +856,13 @@ cdef class SearchEngine:
             needs_full = True
 
             # late move reduction
-            if depth >= 3 and legal_moves_count >= _LMR_THRESH and not is_interesting and not in_check and not gives_check and allow_null:
+            if depth >= _LMR_MIN_DEPTH and legal_moves_count >= _LMR_THRESH and not is_interesting and not in_check and not gives_check and allow_null:
                 if _const.DEBUG: self.dbg_lmr_reductions += 1
                 reduction = _LMR_BASE
-                if legal_moves_count >= 10: reduction = 2
-                if not is_pv: reduction += 1
+                if legal_moves_count >= _LMR_HEAVY_THRESH: reduction = _LMR_HEAVY_RED
+                if not is_pv: reduction += _LMR_NON_PV_RED
                 if gives_check and time_pressure_mode:
-                    reduction = max(0, reduction - 1)
+                    reduction = max(0, reduction - _LMR_CHK_DEC)
 
                 reduced_depth = max(1, depth - 1 - reduction)
                 val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, move, True, False)

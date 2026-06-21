@@ -1,35 +1,58 @@
 from engine.core.constants import (
     WHITE, BLACK,
-    FILE_A, INFINITY, PIECE_VALUES,
+    FILE_A, INFINITY,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
     FLIP_BOARD, SQUARE_TO_BB, NULL as _NULL,
+)
+from engine.core.parameters import (
+    PIECE_VALUES, MG_VALUES, EG_VALUES, PHASE_INC,
     DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY, PASSED_PAWN_BONUS,
-    KNIGHT_OUTPOST_BONUS, ROOK_ON_SEVENTH_RANK, ROOK_BEHIND_PASSED_PAWN,
+    KNIGHT_OUTPOST_BONUS, KNIGHT_OUTPOST_RANKS_W, KNIGHT_OUTPOST_RANKS_B,
+    ROOK_ON_SEVENTH_RANK, ROOK_BEHIND_PASSED_PAWN,
     TRAPPED_PIECE_PENALTY, ROOK_BATTERY_BONUS, QUEEN_ROOK_BATTERY_BONUS,
+    DIAGONAL_BATTERY_SCALE,
     KING_PAWN_SHIELD_BONUS,
+    KING_SHIELD_HOME_RANK_MAX, KING_SHIELD_FAR_RANK_MIN, KING_SHIELD_SCAN_RANKS,
     KING_TO_CENTRE_BONUS, KING_TO_ENEMY_PAWNS_BONUS,
     BISHOP_PAIR_BONUS, ROOK_OPEN_FILE, ROOK_SEMI_OPEN_FILE,
     KNIGHT_MOBILITY, BISHOP_MOBILITY, ROOK_MOBILITY, QUEEN_MOBILITY,
-    WINNING_THRESHOLD, LOSING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE
+    WINNING_THRESHOLD, LOSING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE,
+    PHASE_GATE_DOUBLED_PAWNS, PHASE_GATE_KING_SAFETY,
+    PHASE_GATE_MOBILITY, PHASE_GATE_KING_ENDGAME,
+    MOP_UP_ACTIVATION, MOP_UP_CENTRE_WEIGHT, MOP_UP_DISTANCE_WEIGHT, MOP_UP_MAX_DISTANCE,
+    TRADING_STARTING_PIECES,
 )
 from libc.stdlib cimport calloc, free
 from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, bishop_attacks, rook_attacks
-from engine.search.psqt import PSQTs
+from engine.core.parameters import PSQTs
 from engine.core.zobrist cimport ZOBRIST_PIECES
 import engine.core.constants as _const
 from engine.uci.utils import send_info_string
 from engine.board.state cimport State
 from engine.core.bits cimport lsb, popcount, pop_lsb
 
-# piece values
-MG_VALUES = {PAWN: 82, KNIGHT: 337, BISHOP: 365, ROOK: 477, QUEEN: 1025, KING: 0}
-EG_VALUES = {PAWN: 94, KNIGHT: 281, BISHOP: 297, ROOK: 512, QUEEN: 936, KING: 0}
-
-# game phase increments
-PHASE_INC = {PAWN: 0, KNIGHT: 1, BISHOP: 1, ROOK: 2, QUEEN: 4, KING: 0}
 MAX_PHASE = 4 * PHASE_INC[KNIGHT] + 4 * PHASE_INC[BISHOP] + 4 * PHASE_INC[ROOK] + 2 * PHASE_INC[QUEEN]
+
+# board geometry (0-indexed rank/file): the two central indices and the last index
+cdef int CENTRE_LOW  = 3   # 4th rank/file (d-file, rank 4)
+cdef int CENTRE_HIGH = 4   # 5th rank/file (e-file, rank 5)
+cdef int BOARD_MAX   = 7   # last rank/file index
+
+# square decomposition: sq = rank * 8 + file  ->  rank = sq >> RANK_SHIFT, file = sq & FILE_MASK
+cdef int RANK_SHIFT = 3    # log2(8): shift past the file bits to get the rank
+cdef int FILE_MASK  = 7    # 0b111: low 3 bits of the square index = file
+
+# king pawn-shield scan parameters
+cdef int _KING_SHIELD_HOME_MAX  = KING_SHIELD_HOME_RANK_MAX
+cdef int _KING_SHIELD_FAR_MIN   = KING_SHIELD_FAR_RANK_MIN
+cdef int _KING_SHIELD_SCAN      = KING_SHIELD_SCAN_RANKS
+
+cdef int _KNIGHT_OUTPOST_W_MIN = KNIGHT_OUTPOST_RANKS_W[0]
+cdef int _KNIGHT_OUTPOST_W_MAX = KNIGHT_OUTPOST_RANKS_W[1]
+cdef int _KNIGHT_OUTPOST_B_MIN = KNIGHT_OUTPOST_RANKS_B[0]
+cdef int _KNIGHT_OUTPOST_B_MAX = KNIGHT_OUTPOST_RANKS_B[1]
 
 MG_TABLE = [[0] * 64 for _ in range(16)]
 EG_TABLE = [[0] * 64 for _ in range(16)]
@@ -145,10 +168,10 @@ def init_eval_tables():
         PASSED_PAWN_MASKS_C[BLACK][sq] = b_mask
 
         # knight outpost masks
-        if 4 <= rank <= 6:
+        if _KNIGHT_OUTPOST_W_MIN <= rank <= _KNIGHT_OUTPOST_W_MAX:
             KNIGHT_OUTPOST_MASKS_W[sq] = PASSED_PAWN_MASKS[WHITE][sq]
             KNIGHT_OUTPOST_MASKS_W_C[sq] = PASSED_PAWN_MASKS_C[WHITE][sq]
-        if 2 <= rank <= 4:
+        if _KNIGHT_OUTPOST_B_MIN <= rank <= _KNIGHT_OUTPOST_B_MAX:
             KNIGHT_OUTPOST_MASKS_B[sq] = PASSED_PAWN_MASKS[BLACK][sq]
             KNIGHT_OUTPOST_MASKS_B_C[sq] = PASSED_PAWN_MASKS_C[BLACK][sq]
 
@@ -240,17 +263,17 @@ cdef int _evaluate_pawn_structure_cached(State state, unsigned long long w_pawns
     while temp:
         sq    = lsb(temp)
         temp &= temp - 1
-        rank  = sq >> 3
+        rank  = sq >> RANK_SHIFT
         pawn_score += PASSED_PAWN_BONUS[rank]
 
     temp = state.black_passed_pawns
     while temp:
         sq    = lsb(temp)
         temp &= temp - 1
-        rank  = sq >> 3
-        pawn_score -= PASSED_PAWN_BONUS[7 - rank]
+        rank  = sq >> RANK_SHIFT
+        pawn_score -= PASSED_PAWN_BONUS[BOARD_MAX - rank]
 
-    if state.phase < int(MAX_PHASE * 0.8):
+    if state.phase < int(MAX_PHASE * PHASE_GATE_DOUBLED_PAWNS):
         for f in range(8):
             w_count = popcount(w_pawns & FILE_MASKS[f])
             b_count = popcount(b_pawns & FILE_MASKS[f])
@@ -286,16 +309,16 @@ cdef int get_mop_up_score(State state, bint winning_is_white) noexcept:
     winning_sq  = lsb(winning_king_bb)
     losing_sq   = lsb(losing_king_bb)
 
-    losing_rank = losing_sq >> 3
-    losing_file = losing_sq & 7
+    losing_rank = losing_sq >> RANK_SHIFT
+    losing_file = losing_sq & FILE_MASK
 
-    centre_dist = max(3 - losing_rank, losing_rank - 4) + max(3 - losing_file, losing_file - 4)
-    mop_up = 4 * centre_dist
+    centre_dist = max(CENTRE_LOW - losing_rank, losing_rank - CENTRE_HIGH) + max(CENTRE_LOW - losing_file, losing_file - CENTRE_HIGH)
+    mop_up = MOP_UP_CENTRE_WEIGHT * centre_dist
 
-    winning_rank = winning_sq >> 3
-    winning_file = winning_sq & 7
+    winning_rank = winning_sq >> RANK_SHIFT
+    winning_file = winning_sq & FILE_MASK
     dist_between_kings = abs(winning_rank - losing_rank) + abs(winning_file - losing_file)
-    mop_up += 2 * (14 - dist_between_kings)
+    mop_up += MOP_UP_DISTANCE_WEIGHT * (MOP_UP_MAX_DISTANCE - dist_between_kings)
 
     return mop_up if winning_is_white else -mop_up
 
@@ -311,7 +334,7 @@ cdef int evaluate_trading_bonus(State state, int base_eval) noexcept:
                 popcount(state.bitboards[BR]) + popcount(state.bitboards[BQ]))
 
     total_pieces = w_pieces + b_pieces
-    simplification_level = 24 - total_pieces
+    simplification_level = TRADING_STARTING_PIECES - total_pieces
 
     if base_eval > WINNING_THRESHOLD:
         return simplification_level * TRADE_BONUS_PER_PIECE
@@ -324,18 +347,18 @@ cdef int evaluate_trading_bonus(State state, int base_eval) noexcept:
 cdef int evaluate_king_safety_simple(int king_sq, unsigned long long own_pawns) noexcept:
     cdef int king_rank, king_file, safety_score, direction
     cdef int rank_offset, check_rank, file_offset, check_file, check_sq
-    king_rank = king_sq >> 3
-    king_file = king_sq & 7
+    king_rank = king_sq >> RANK_SHIFT
+    king_file = king_sq & FILE_MASK
     safety_score = 0
 
-    if king_rank <= 1:
+    if king_rank <= _KING_SHIELD_HOME_MAX:
         direction = 1
-    elif king_rank >= 6:
+    elif king_rank >= _KING_SHIELD_FAR_MIN:
         direction = -1
     else:
         return 0
 
-    for rank_offset in range(1, 3):
+    for rank_offset in range(1, _KING_SHIELD_SCAN + 1):
         check_rank = king_rank + (rank_offset * direction)
         if not (0 <= check_rank <= 7): break
 
@@ -353,26 +376,26 @@ cdef int evaluate_king_endgame_activity(int king_sq, unsigned long long enemy_pa
     cdef int king_rank, king_file, centre_dist, centralisation_bonus
     cdef int min_dist, pawn_sq, pawn_rank, pawn_file, dist, proximity_bonus
     cdef unsigned long long temp
-    king_rank = king_sq >> 3
-    king_file = king_sq & 7
-    centre_dist = max(3 - king_rank, king_rank - 4) + max(3 - king_file, king_file - 4)
-    centralisation_bonus = (7 - centre_dist) * KING_TO_CENTRE_BONUS
+    king_rank = king_sq >> RANK_SHIFT
+    king_file = king_sq & FILE_MASK
+    centre_dist = max(CENTRE_LOW - king_rank, king_rank - CENTRE_HIGH) + max(CENTRE_LOW - king_file, king_file - CENTRE_HIGH)
+    centralisation_bonus = (BOARD_MAX - centre_dist) * KING_TO_CENTRE_BONUS
 
     if not enemy_pawns:
         return centralisation_bonus
 
-    min_dist = 14
+    min_dist = MOP_UP_MAX_DISTANCE
     temp = enemy_pawns
     while temp:
         pawn_sq   = lsb(temp)
         temp     &= temp - 1
-        pawn_rank = pawn_sq >> 3
-        pawn_file = pawn_sq & 7
+        pawn_rank = pawn_sq >> RANK_SHIFT
+        pawn_file = pawn_sq & FILE_MASK
         dist = abs(king_rank - pawn_rank) + abs(king_file - pawn_file)
         if dist < min_dist:
             min_dist = dist
 
-    proximity_bonus = (14 - min_dist) * KING_TO_ENEMY_PAWNS_BONUS
+    proximity_bonus = (MOP_UP_MAX_DISTANCE - min_dist) * KING_TO_ENEMY_PAWNS_BONUS
 
     return centralisation_bonus + proximity_bonus
 
@@ -450,8 +473,8 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     passed_pawns = state.white_passed_pawns
     while temp_rooks:
         sq = lsb(temp_rooks)
-        f = sq & 7
-        rank = sq >> 3
+        f = sq & FILE_MASK
+        rank = sq >> RANK_SHIFT
         file_mask = FILE_MASKS[f]
 
         if not (w_pawns & file_mask) and not (b_pawns & file_mask):
@@ -465,7 +488,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         passed_file_mask = passed_pawns & file_mask
         if passed_file_mask:
             passed_sq = lsb(passed_file_mask)
-            passed_rank = passed_sq >> 3
+            passed_rank = passed_sq >> RANK_SHIFT
             if rank < passed_rank:
                 score_adj += ROOK_BEHIND_PASSED_PAWN
 
@@ -480,8 +503,8 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     passed_pawns = state.black_passed_pawns
     while temp_rooks:
         sq = lsb(temp_rooks)
-        f = sq & 7
-        rank = sq >> 3
+        f = sq & FILE_MASK
+        rank = sq >> RANK_SHIFT
         file_mask = FILE_MASKS[f]
 
         if not (w_pawns & file_mask) and not (b_pawns & file_mask):
@@ -495,7 +518,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
         passed_file_mask = passed_pawns & file_mask
         if passed_file_mask:
             passed_sq = lsb(passed_file_mask)
-            passed_rank = passed_sq >> 3
+            passed_rank = passed_sq >> RANK_SHIFT
             if rank > passed_rank:
                 score_adj += ROOK_BEHIND_PASSED_PAWN
 
@@ -533,7 +556,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     b_king_sq = lsb(bk_bb) if bk_bb else _NULL
 
     dbg_king_safety = 0
-    if mg_phase > int(MAX_PHASE * 0.6):
+    if mg_phase > int(MAX_PHASE * PHASE_GATE_KING_SAFETY):
         if w_king_sq >= 0:
             ks = evaluate_king_safety_simple(w_king_sq, w_pawns)
             evaluation += ks
@@ -545,7 +568,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
 
     # mobility + trapped pieces (ONLY in middlegame when phase > 50%)
     dbg_mobility = 0
-    if mg_phase > int(MAX_PHASE * 0.5):
+    if mg_phase > int(MAX_PHASE * PHASE_GATE_MOBILITY):
         # white pieces
         mobility_score = 0
         piece_bb = state.bitboards[WN]
@@ -649,11 +672,11 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
             battery_score += ROOK_BATTERY_BONUS
     if queen_bb:
         queen_sq = lsb(queen_bb)
-        queen_file = queen_sq & 7
+        queen_file = queen_sq & FILE_MASK
         if rooks_bb & FILE_MASKS[queen_file]:
             battery_score += QUEEN_ROOK_BATTERY_BONUS
         if rooks_bb & bishop_attacks(queen_sq, all_pieces):
-            battery_score += QUEEN_ROOK_BATTERY_BONUS // 2
+            battery_score += <int>(QUEEN_ROOK_BATTERY_BONUS * DIAGONAL_BATTERY_SCALE)
     evaluation += battery_score
     dbg_battery += battery_score
 
@@ -666,11 +689,11 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
             battery_score += ROOK_BATTERY_BONUS
     if queen_bb:
         queen_sq = lsb(queen_bb)
-        queen_file = queen_sq & 7
+        queen_file = queen_sq & FILE_MASK
         if rooks_bb & FILE_MASKS[queen_file]:
             battery_score += QUEEN_ROOK_BATTERY_BONUS
         if rooks_bb & bishop_attacks(queen_sq, all_pieces):
-            battery_score += QUEEN_ROOK_BATTERY_BONUS // 2
+            battery_score += <int>(QUEEN_ROOK_BATTERY_BONUS * DIAGONAL_BATTERY_SCALE)
     evaluation -= battery_score
     dbg_battery -= battery_score
 
@@ -681,7 +704,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
     # endgame: king activity + mop up (only when phase < 40%)
     dbg_king_activity = 0
     dbg_mop_up = 0
-    if mg_phase < int(MAX_PHASE * 0.4):
+    if mg_phase < int(MAX_PHASE * PHASE_GATE_KING_ENDGAME):
         score_no_mopup = evaluation if state.is_white else -evaluation
 
         if w_king_sq >= 0:
@@ -693,11 +716,11 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
             evaluation -= b_king_activity
             dbg_king_activity -= b_king_activity
 
-        if score_no_mopup > 200:
+        if score_no_mopup > MOP_UP_ACTIVATION:
             mop = get_mop_up_score(state, state.is_white)
             evaluation += mop
             dbg_mop_up = mop
-        elif score_no_mopup < -200:
+        elif score_no_mopup < -MOP_UP_ACTIVATION:
             mop = get_mop_up_score(state, not state.is_white)
             evaluation += mop
             dbg_mop_up = mop
