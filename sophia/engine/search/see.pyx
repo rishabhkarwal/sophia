@@ -186,7 +186,28 @@ cdef int see_value(State state, unsigned int move) noexcept:
     return gain[0]
 
 
+# see >=
 cdef bint see_ge(State state, unsigned int move, int threshold) noexcept:
+    cdef int start_sq, target_sq, flag
+    cdef int attacker, victim, victim_value, attacker_value
+
+    if threshold <= 0:
+        start_sq = move_source(move)
+        target_sq = move_target(move)
+        flag = move_flag(move)
+        attacker = state.board[start_sq]
+
+        if attacker != _NULL_SQ:
+            if flag == _EN_PASSANT:
+                victim_value = _PIECE_VALUES[_PAWN]
+            else:
+                victim = state.board[target_sq]
+                victim_value = _PIECE_VALUES[victim & ~_WHITE] if victim != _NULL_SQ else 0
+
+            attacker_value = _PIECE_VALUES[attacker & ~_WHITE]
+            if victim_value > 0 and victim_value >= attacker_value:
+                return True
+
     return see_value(state, move) >= threshold
 
 

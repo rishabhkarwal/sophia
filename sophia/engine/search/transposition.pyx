@@ -16,16 +16,22 @@ cdef unsigned int _NO_MOVE = 0
 
 cdef class TranspositionTable:
     def __init__(self, size_mb: int = 64):
-        cdef long long total_bytes, n
+        cdef long long total_bytes, n, power
         # each entry is 20 bytes (8 + 4 + 4 + 2 + 1 + 1 pad = 20, packed = 19 but we use packed)
         total_bytes = <long long>size_mb * 1024 * 1024
         n = total_bytes // sizeof(TTEntry)
         if n < 1:
             n = 1
-        self.size = n
+
+        power = 1
+        while (power << 1) <= n:
+            power <<= 1
+
+        self.size = power
+        self.mask = <unsigned long long>(power - 1)
         self.entries_count = 0
         # calloc zero-initialises — key=0 means empty (valid Zobrist keys are non-zero)
-        self.table = <TTEntry*>calloc(n, sizeof(TTEntry))
+        self.table = <TTEntry*>calloc(power, sizeof(TTEntry))
         if not self.table:
             raise MemoryError(f"TranspositionTable: failed to allocate {size_mb} MB")
 
@@ -40,7 +46,7 @@ cdef class TranspositionTable:
         cdef long long index
         cdef TTEntry* slot
 
-        index = <long long>(key % <unsigned long long>self.size)
+        index = <long long>(key & self.mask)
         slot  = &self.table[index]
 
         if slot.key == 0:
@@ -61,7 +67,7 @@ cdef class TranspositionTable:
         cdef long long index
         cdef TTEntry* slot
 
-        index = <long long>(key % <unsigned long long>self.size)
+        index = <long long>(key & self.mask)
         slot  = &self.table[index]
 
         if slot.key == key and slot.key != 0:

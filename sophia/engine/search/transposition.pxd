@@ -10,6 +10,7 @@ cdef packed struct TTEntry:
 cdef class TranspositionTable:
     cdef TTEntry*      table
     cdef public long long size
+    cdef public unsigned long long mask
     cdef public int entries_count
 
     cdef bint probe(self, unsigned long long key,

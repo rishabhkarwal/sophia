@@ -190,13 +190,14 @@ def calculate_initial_score(state):
     cdef int count
     cdef int sq
     cdef int p_idx
+    cdef unsigned long long bb
     mg, eg, phase = 0, 0, 0
 
     for p_idx in [WP, WN, WB, WR, WQ, WK, BP, BN, BB, BR, BQ, BK]:
         bb = state.bitboards[p_idx]
         if not bb: continue
 
-        count = bb.bit_count()
+        count = popcount(bb)
         phase += PHASE_WEIGHTS_C[p_idx] * count
 
         while bb:
@@ -208,6 +209,9 @@ def calculate_initial_score(state):
     return mg, eg, phase
 
 def calculate_initial_passed_pawns(state):
+    cdef unsigned long long w_pawns, b_pawns, w_passed, b_passed, temp, lsb_bb
+    cdef int sq
+
     w_pawns = state.bitboards[WP]
     b_pawns = state.bitboards[BP]
 
@@ -217,18 +221,18 @@ def calculate_initial_passed_pawns(state):
     temp = w_pawns
     while temp:
         lsb_bb = temp & -temp
-        sq = lsb_bb.bit_length() - 1
+        sq = lsb(temp)
         if not (PASSED_PAWN_MASKS_C[WHITE][sq] & b_pawns):
             w_passed |= lsb_bb
-        temp &= temp - 1
+        temp = pop_lsb(temp)
 
     temp = b_pawns
     while temp:
         lsb_bb = temp & -temp
-        sq = lsb_bb.bit_length() - 1
+        sq = lsb(temp)
         if not (PASSED_PAWN_MASKS_C[BLACK][sq] & w_pawns):
             b_passed |= lsb_bb
-        temp &= temp - 1
+        temp = pop_lsb(temp)
 
     return w_passed, b_passed
 

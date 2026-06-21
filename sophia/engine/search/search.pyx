@@ -45,15 +45,15 @@ from engine.core.parameters import (
 )
 from engine.core.move import move_to_uci
 from engine.core.move cimport is_capture, is_promotion, is_en_passant
+from engine.core.bits cimport popcount
 from engine.moves.generator cimport MoveList, generate_pseudo_legal_move_list
 from engine.moves.generator import generate_pseudo_legal_moves
 from engine.board.move_exec cimport (
     make_move, unmake_move,
     make_null_move, unmake_null_move,
-    has_insufficient_material
+    has_insufficient_material, repetition_count
 )
-from engine.board.move_exec import is_repetition
-from engine.moves.legality import is_in_check
+from engine.moves.legality cimport is_in_check
 from engine.search.transposition import (
     FLAG_EXACT, FLAG_LOWERBOUND, FLAG_UPPERBOUND
 )
@@ -580,6 +580,7 @@ cdef class SearchEngine:
         cdef int rfp_margin, futility_margin, alpha_orig
         cdef int legal_moves_count, i, old_phase, child_depth
         cdef int lmp_threshold, best_value, value, val, flag
+        cdef int repeat_count
         cdef unsigned int move
         cdef bint in_check, gives_check, is_interesting, do_futility
         cdef bint needs_full, time_pressure_mode, see_ok
@@ -597,6 +598,7 @@ cdef class SearchEngine:
         cdef unsigned char _tt_flag
         cdef unsigned int  _tt_move_raw
         cdef bint          _tt_hit, _iid_hit
+        cdef unsigned long long all_pieces
 
         if ply > self.seldepth: self.seldepth = ply
 
@@ -617,7 +619,9 @@ cdef class SearchEngine:
             if beta <= mated_value:
                 return mated_value
 
-        is_threefold, is_fivefold = is_repetition(state)
+        repeat_count = repetition_count(state)
+        is_threefold = repeat_count >= 2
+        is_fivefold = repeat_count >= 4
 
         if is_threefold or is_fivefold:
             if _const.DEBUG: self.dbg_repetition_draws += 1
@@ -693,7 +697,7 @@ cdef class SearchEngine:
         if depth <= 0: return self._quiescence(state, alpha, beta, ply)
 
         all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
-        if all_pieces.bit_count() <= _SYZYGY_THRESH:
+        if popcount(all_pieces) <= _SYZYGY_THRESH:
             if _const.DEBUG: self.dbg_syzygy_probes += 1
             cached = self.syzygy_cache.get(state.hash)
             if cached is None:

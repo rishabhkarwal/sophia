@@ -4,7 +4,7 @@
 # cython: cdivision=True
 
 from engine.board.state cimport State
-from engine.core.bits cimport lsb
+from engine.core.bits cimport lsb, popcount
 from engine.core.move cimport (
     is_capture, is_promotion, is_en_passant, is_castling,
     move_source, move_target, move_promotion_index
@@ -36,26 +36,32 @@ cdef int _E1 = E1, _C1 = C1, _G1 = G1, _E8 = E8, _C8 = C8, _G8 = G8
 cdef int _F1 = F1, _D1 = D1, _F8 = F8, _D8 = D8
 cdef int _NORTH = NORTH, _SOUTH = SOUTH
 
-def is_repetition(State state):
+cdef int repetition_count(State state) except -1:
     cdef unsigned long long current_hash
-    cdef int count, i, search_limit
+    cdef int count, i
+    cdef Py_ssize_t history_len, search_limit, stop
 
-    if not state.history: return False, False
+    if not state.history: return 0
 
-    search_limit = min(state.halfmove_clock, len(state.history))
+    history_len = len(state.history)
+    search_limit = min(state.halfmove_clock, history_len)
 
-    # not enough moves played
-    if search_limit < 4: return False, False
+    if search_limit < 4: return 0
 
     current_hash = state.hash
     count = 0
+    stop = max(history_len - search_limit - 1, -1)
 
-    for i in range(len(state.history) - 2, max(len(state.history) - search_limit - 1, -1), -2):
+    for i in range(history_len - 2, stop, -2):
         if state.history[i] == current_hash:
             count += 1
         if count >= 5: break # over fivefold
 
-    # threefold, fivefold
+    return count
+
+
+def is_repetition(State state):
+    cdef int count = repetition_count(state)
     return count >= 2, count >= 4
 
 
@@ -70,10 +76,10 @@ cpdef bint has_insufficient_material(State state):
         state.bitboards[_WQ] or state.bitboards[_BQ]):
         return False
 
-    w_knights = bin(state.bitboards[_WN]).count('1')
-    w_bishops = bin(state.bitboards[_WB]).count('1')
-    b_knights = bin(state.bitboards[_BN]).count('1')
-    b_bishops = bin(state.bitboards[_BB]).count('1')
+    w_knights = popcount(state.bitboards[_WN])
+    w_bishops = popcount(state.bitboards[_WB])
+    b_knights = popcount(state.bitboards[_BN])
+    b_bishops = popcount(state.bitboards[_BB])
 
     total_minors = w_knights + w_bishops + b_knights + b_bishops
 

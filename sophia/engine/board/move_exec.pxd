@@ -1,5 +1,7 @@
 from engine.board.state cimport State
 
+cdef int repetition_count(State state) except -1
+
 cpdef void make_move(State state, unsigned int move)
 cpdef void unmake_move(State state, unsigned int move)
 cpdef void make_null_move(State state)
