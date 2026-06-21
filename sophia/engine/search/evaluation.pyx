@@ -74,15 +74,21 @@ cdef unsigned long long KNIGHT_OUTPOST_MASKS_B_C[64]
 
 cdef class PawnHashTable:
     def __init__(self, size_mb=16):
-        cdef long long total_bytes, n
+        cdef long long total_bytes, n, power
         total_bytes = <long long>size_mb * 1024 * 1024
         n = total_bytes // sizeof(PawnEntry)
         if n < 1: n = 1
-        self.size = n
+
+        power = 1
+        while (power << 1) <= n:
+            power <<= 1
+
+        self.size = power
+        self.mask = <unsigned long long>(power - 1)
         self.dbg_hits = 0
         self.dbg_misses = 0
         # calloc zero-initialises — key=0 means empty
-        self.table = <PawnEntry*>calloc(n, sizeof(PawnEntry))
+        self.table = <PawnEntry*>calloc(power, sizeof(PawnEntry))
         if not self.table:
             raise MemoryError(f"PawnHashTable: failed to allocate {size_mb} MB")
 
@@ -92,7 +98,7 @@ cdef class PawnHashTable:
             self.table = NULL
 
     cdef bint probe(self, unsigned long long key, int* out_score) noexcept:
-        cdef long long idx = <long long>(key % <unsigned long long>self.size)
+        cdef long long idx = <long long>(key & self.mask)
         cdef PawnEntry* slot = &self.table[idx]
         if slot.key == key:
             if _const.DEBUG_EVAL: self.dbg_hits += 1
@@ -102,7 +108,7 @@ cdef class PawnHashTable:
         return False
 
     cdef void store(self, unsigned long long key, int score) noexcept:
-        cdef long long idx = <long long>(key % <unsigned long long>self.size)
+        cdef long long idx = <long long>(key & self.mask)
         self.table[idx].key   = key
         self.table[idx].score = score
 

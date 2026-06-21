@@ -54,6 +54,8 @@ cdef int _least_attacker(State state, int sq, int colour,
                          unsigned long long occupied,
                          int* piece_value) noexcept:
     cdef unsigned long long attackers
+    cdef unsigned long long diag_attacks
+    cdef unsigned long long orth_attacks
 
     if colour == _WHITE:
         attackers = BLACK_PAWN_ATTACKS[sq] & state.bitboards[_WP] & occupied
@@ -66,17 +68,19 @@ cdef int _least_attacker(State state, int sq, int colour,
             piece_value[0] = _PIECE_VALUES[_KNIGHT]
             return _lsb_sq(attackers)
 
-        attackers = bishop_attacks(sq, occupied) & state.bitboards[_WB] & occupied
+        diag_attacks = bishop_attacks(sq, occupied)
+        attackers = diag_attacks & state.bitboards[_WB] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_BISHOP]
             return _lsb_sq(attackers)
 
-        attackers = rook_attacks(sq, occupied) & state.bitboards[_WR] & occupied
+        orth_attacks = rook_attacks(sq, occupied)
+        attackers = orth_attacks & state.bitboards[_WR] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_ROOK]
             return _lsb_sq(attackers)
 
-        attackers = (bishop_attacks(sq, occupied) | rook_attacks(sq, occupied)) & state.bitboards[_WQ] & occupied
+        attackers = (diag_attacks | orth_attacks) & state.bitboards[_WQ] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_QUEEN]
             return _lsb_sq(attackers)
@@ -96,17 +100,19 @@ cdef int _least_attacker(State state, int sq, int colour,
             piece_value[0] = _PIECE_VALUES[_KNIGHT]
             return _lsb_sq(attackers)
 
-        attackers = bishop_attacks(sq, occupied) & state.bitboards[_BB] & occupied
+        diag_attacks = bishop_attacks(sq, occupied)
+        attackers = diag_attacks & state.bitboards[_BB] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_BISHOP]
             return _lsb_sq(attackers)
 
-        attackers = rook_attacks(sq, occupied) & state.bitboards[_BR] & occupied
+        orth_attacks = rook_attacks(sq, occupied)
+        attackers = orth_attacks & state.bitboards[_BR] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_ROOK]
             return _lsb_sq(attackers)
 
-        attackers = (bishop_attacks(sq, occupied) | rook_attacks(sq, occupied)) & state.bitboards[_BQ] & occupied
+        attackers = (diag_attacks | orth_attacks) & state.bitboards[_BQ] & occupied
         if attackers:
             piece_value[0] = _PIECE_VALUES[_QUEEN]
             return _lsb_sq(attackers)

@@ -11,6 +11,7 @@ cdef packed struct PawnEntry:
 cdef class PawnHashTable:
     cdef PawnEntry*    table
     cdef public long long size
+    cdef public unsigned long long mask
     cdef public long long dbg_hits
     cdef public long long dbg_misses
 
