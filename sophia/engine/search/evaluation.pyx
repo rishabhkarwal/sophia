@@ -194,11 +194,10 @@ def calculate_initial_score(state):
         phase += PHASE_WEIGHTS_C[p_idx] * count
 
         while bb:
-            lsb = bb & -bb
-            sq = lsb.bit_length() - 1
+            sq = lsb(bb)
+            bb = pop_lsb(bb)
             mg += MG_TABLE_C[p_idx][sq]
             eg += EG_TABLE_C[p_idx][sq]
-            bb &= bb - 1
 
     return mg, eg, phase
 
@@ -211,18 +210,18 @@ def calculate_initial_passed_pawns(state):
 
     temp = w_pawns
     while temp:
-        lsb = temp & -temp
-        sq = lsb.bit_length() - 1
+        lsb_bb = temp & -temp
+        sq = lsb_bb.bit_length() - 1
         if not (PASSED_PAWN_MASKS_C[WHITE][sq] & b_pawns):
-            w_passed |= lsb
+            w_passed |= lsb_bb
         temp &= temp - 1
 
     temp = b_pawns
     while temp:
-        lsb = temp & -temp
-        sq = lsb.bit_length() - 1
+        lsb_bb = temp & -temp
+        sq = lsb_bb.bit_length() - 1
         if not (PASSED_PAWN_MASKS_C[BLACK][sq] & w_pawns):
-            b_passed |= lsb
+            b_passed |= lsb_bb
         temp &= temp - 1
 
     return w_passed, b_passed

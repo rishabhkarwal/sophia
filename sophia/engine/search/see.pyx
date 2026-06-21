@@ -1,17 +1,18 @@
 from engine.core.constants import (
     WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MASK_SOURCE, NULL as _NULL,
+    NULL as _NULL,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
 )
 from engine.core.parameters import PIECE_VALUES
 from engine.core.move import (
-    SHIFT_TARGET, EN_PASSANT, SHIFT_FLAG, FLAG_MASK,
+    EN_PASSANT,
     PROMOTION, SPECIAL_1, SPECIAL_0
 )
-from engine.board.state cimport State
+from engine.core.move cimport move_source, move_target, move_flag
 from engine.core.bits cimport lsb
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
+from engine.board.state cimport State
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks, SQUARE_TO_BB
 
 cdef int _WHITE = WHITE
 cdef int _BLACK = BLACK
@@ -28,10 +29,6 @@ cdef int _EN_PASSANT = EN_PASSANT
 cdef int _PROMOTION = PROMOTION
 cdef int _SP1 = SPECIAL_1
 cdef int _SP0 = SPECIAL_0
-cdef int _FLAG_MASK = FLAG_MASK
-cdef int _MASK_SOURCE = MASK_SOURCE
-cdef int _SHIFT_TARGET = SHIFT_TARGET
-cdef int _SHIFT_FLAG = SHIFT_FLAG
 
 cdef int[16] _PIECE_VALUES
 _PIECE_VALUES[_PAWN]   = PIECE_VALUES[PAWN]
@@ -40,11 +37,6 @@ _PIECE_VALUES[_BISHOP] = PIECE_VALUES[BISHOP]
 _PIECE_VALUES[_ROOK]   = PIECE_VALUES[ROOK]
 _PIECE_VALUES[_QUEEN]  = PIECE_VALUES[QUEEN]
 _PIECE_VALUES[_KING]   = PIECE_VALUES[KING]
-
-
-cdef inline unsigned long long _bb(int sq) noexcept:
-    return (<unsigned long long>1) << sq
-
 
 cdef inline int _lsb_sq(unsigned long long bb) noexcept:
     return lsb(bb)
@@ -135,9 +127,9 @@ cdef int see_value(State state, unsigned int move) noexcept:
     cdef int promoted_type, capture_sq, side, current_sq, d
     cdef unsigned long long occupied
 
-    start_sq  = move & _MASK_SOURCE
-    target_sq = (move >> _SHIFT_TARGET) & _MASK_SOURCE
-    flag      = (move >> _SHIFT_FLAG) & _FLAG_MASK
+    start_sq  = move_source(move)
+    target_sq = move_target(move)
+    flag      = move_flag(move)
 
     moving_piece = state.board[start_sq]
     if moving_piece == _NULL_SQ:
@@ -152,7 +144,7 @@ cdef int see_value(State state, unsigned int move) noexcept:
     if flag == _EN_PASSANT:
         victim_value = _PIECE_VALUES[_PAWN]
         capture_sq = target_sq - 8 if moving_colour == _WHITE else target_sq + 8
-        occupied &= ~_bb(capture_sq)
+        occupied &= ~SQUARE_TO_BB[capture_sq]
     else:
         victim = state.board[target_sq]
         if victim != _NULL_SQ:
@@ -174,7 +166,7 @@ cdef int see_value(State state, unsigned int move) noexcept:
     while d < 31:
         d += 1
         gain[d] = current_value - gain[d - 1]
-        occupied &= ~_bb(current_sq)
+        occupied &= ~SQUARE_TO_BB[current_sq]
         side = side ^ _WHITE
         current_sq = _least_attacker(state, target_sq, side, occupied, &current_value)
         if current_sq == _NULL_SQ:

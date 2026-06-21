@@ -7,12 +7,11 @@ from engine.core.constants import (
     WHITE, BLACK,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
-    MASK_SOURCE, SQUARE_TO_BB,
     WHITE_PIECES, BLACK_PIECES
 )
-from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks
-from engine.core.move import SHIFT_TARGET
-from engine.core.move cimport _pack
+from engine.moves.precomputed cimport KNIGHT_ATTACKS, KING_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS, bishop_attacks, rook_attacks, SQUARE_TO_BB
+from engine.core.move cimport move_source, move_target
+from engine.core.bits cimport lsb
 
 from engine.board.state cimport State
 from engine.board.move_exec cimport make_move, unmake_move
@@ -60,7 +59,7 @@ cpdef bint is_in_check(State state, bint colour) noexcept:
         return False
 
     # lsb via bit-length (king bitboard always has exactly one bit)
-    king_sq = (king_bb & -king_bb).bit_length() - 1
+    king_sq = lsb(king_bb)
 
     return is_square_attacked(state, king_sq, not colour)
 
@@ -71,12 +70,12 @@ cpdef bint is_legal(State state, unsigned int move):
     cdef unsigned long long start_mask, restore_mask
     cdef bint attacked, in_check
 
-    start_sq  = move & MASK_SOURCE
+    start_sq  = move_source(move)
     king_idx  = _WK if state.is_white else _BK
 
     if state.bitboards[king_idx] & SQUARE_TO_BB[start_sq]:
         # king move — remove king from its source, test if destination is safe
-        target_sq  = (move >> SHIFT_TARGET) & MASK_SOURCE
+        target_sq  = move_target(move)
         start_mask = SQUARE_TO_BB[start_sq]
 
         state.bitboards[king_idx]            &= ~start_mask

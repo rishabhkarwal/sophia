@@ -6,7 +6,7 @@
 from engine.core.constants import (
     WHITE, INFINITY, NULL as _NULL,
     PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
-    MAX_DEPTH, MASK_SOURCE,
+    MAX_DEPTH,
     HISTORY_MAX, HISTORY_GRAVITY,
 )
 from engine.core.parameters import (
@@ -16,22 +16,18 @@ from engine.core.parameters import (
     MOVE_REPETITION_PENALTY, MVV_LVA_MULTIPLIER,
 )
 from engine.core.move import (
-    CAPTURE, EN_PASSANT, PROMOTION, FLAG_MASK,
-    SHIFT_TARGET, SHIFT_FLAG
+    CAPTURE, EN_PASSANT, PROMOTION,
 )
+from engine.core.move cimport move_source, move_target, move_flag, is_capture, is_promotion, is_en_passant
 from engine.search.see cimport see_ge
 from engine.board.state cimport State
 from engine.moves.generator cimport MoveList
 
 cdef int _INFINITY        = INFINITY
 cdef int _NULL_SQ         = _NULL
-cdef int _SHIFT_TARGET    = SHIFT_TARGET
-cdef int _SHIFT_FLAG      = SHIFT_FLAG
 cdef int _CAPTURE         = CAPTURE
 cdef int _EN_PASSANT      = EN_PASSANT
 cdef int _PROMOTION       = PROMOTION
-cdef int _FLAG_MASK       = FLAG_MASK
-cdef int _MASK_SOURCE     = MASK_SOURCE
 cdef int _HISTORY_MAX     = HISTORY_MAX
 cdef int _PAWN            = PAWN
 cdef int _KNIGHT          = KNIGHT
@@ -71,10 +67,7 @@ cdef class MoveOrdering:
             self.killer_moves[i][1] = 0
 
     cpdef void store_killer(self, int depth, unsigned int move) noexcept:
-        cdef int flag
-        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
-
-        if (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION): return
+        if is_capture(move) or is_en_passant(move) or is_promotion(move): return
 
         if self.killer_moves[depth][0] == move: return
 
@@ -82,41 +75,37 @@ cdef class MoveOrdering:
         self.killer_moves[depth][0] = move
 
     cdef void store_history(self, unsigned int move, int depth) noexcept:
-        cdef int flag, start, target, bonus
-        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
+        cdef int start, target, bonus
 
-        if (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION): return
+        if is_capture(move) or is_en_passant(move) or is_promotion(move): return
 
-        start  = move & _MASK_SOURCE
-        target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+        start  = move_source(move)
+        target = move_target(move)
 
         bonus  = depth * depth
         self.history_table[start][target] += bonus - self.history_table[start][target] * bonus // _HISTORY_MAX
 
     cdef void apply_history_malus(self, unsigned int move, int depth) noexcept:
-        cdef int flag, start, target, bonus
-        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
+        cdef int start, target, bonus
 
-        if (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION): return
+        if is_capture(move) or is_en_passant(move) or is_promotion(move): return
 
-        start  = move & _MASK_SOURCE
-        target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+        start  = move_source(move)
+        target = move_target(move)
 
         bonus  = depth * depth
         self.history_table[start][target] -= bonus - self.history_table[start][target] * bonus // _HISTORY_MAX
 
     cdef void store_countermove(self, object previous_move, unsigned int current_move) noexcept:
-        cdef int flag, prev_from, prev_to, previous_move_int
+        cdef int prev_from, prev_to, previous_move_int
 
         if previous_move is None: return
 
-        flag = (current_move >> _SHIFT_FLAG) & _FLAG_MASK
-
-        if (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION): return
+        if is_capture(current_move) or is_en_passant(current_move) or is_promotion(current_move): return
 
         previous_move_int = <int>previous_move
-        prev_from = previous_move_int & _MASK_SOURCE
-        prev_to   = (previous_move_int >> _SHIFT_TARGET) & _MASK_SOURCE
+        prev_from = move_source(<unsigned int>previous_move_int)
+        prev_to   = move_target(<unsigned int>previous_move_int)
 
         self.countermoves[prev_from][prev_to] = current_move
 
@@ -126,32 +115,31 @@ cdef class MoveOrdering:
         if previous_move is None: return 0
         previous_move_int = <int>previous_move
 
-        prev_from = previous_move_int & _MASK_SOURCE
-        prev_to   = (previous_move_int >> _SHIFT_TARGET) & _MASK_SOURCE
+        prev_from = move_source(<unsigned int>previous_move_int)
+        prev_to   = move_target(<unsigned int>previous_move_int)
 
         return self.countermoves[prev_from][prev_to]
 
     cpdef int get_move_score(self, unsigned int move, unsigned int tt_move,
                              unsigned int counter_move, State state,
                              int depth, unsigned int killer_1, unsigned int killer_2) noexcept:
-        cdef int flag, start, target, base_score
+        cdef int start, target, base_score
         cdef int piece, piece_type
         cdef int attacker, victim, victim_val, attacker_val, mvv_lva
 
         if move == tt_move: return _SCORE_TT_MOVE
 
-        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
-        cdef bint is_cap = (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION)
+        cdef bint is_cap = is_capture(move) or is_en_passant(move) or is_promotion(move)
 
         if is_cap:
             # MVV-LVA
-            start   = move & _MASK_SOURCE
-            target  = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+            start   = move_source(move)
+            target  = move_target(move)
             attacker = state.board[start]
             victim   = state.board[target]
 
             if victim == _NULL_SQ:
-                if flag == _EN_PASSANT:
+                if is_en_passant(move):
                     victim_val = _PIECE_VALUES[_PAWN]
                 else:
                     victim_val = 0
@@ -173,8 +161,8 @@ cdef class MoveOrdering:
         if move == killer_2 and killer_2 != 0:
             return _SCORE_KILLER_2
 
-        start  = move & _MASK_SOURCE
-        target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+        start  = move_source(move)
+        target = move_target(move)
         base_score = self.history_table[start][target]
 
         if state.last_moved_piece_sq >= 0 and state.last_moved_piece_sq == start:
@@ -225,7 +213,7 @@ cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
                           State state, MoveOrdering ordering,
                           unsigned int tt_move, unsigned int counter,
                           int depth, unsigned int k1, unsigned int k2) noexcept:
-    cdef int i, n, flag, start, target, base_score
+    cdef int i, n, start, target, base_score
     cdef int piece, piece_type
     cdef int attacker, victim, victim_val, attacker_val, mvv_lva
     cdef bint is_cap, see_ok
@@ -236,17 +224,16 @@ cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
         move = moves.moves[i]
         see_cache[i] = -1
 
-        flag = (move >> _SHIFT_FLAG) & _FLAG_MASK
-        is_cap = (flag & _CAPTURE) or (flag == _EN_PASSANT) or (flag & _PROMOTION)
+        is_cap = is_capture(move) or is_en_passant(move) or is_promotion(move)
 
         if is_cap:
-            start  = move & _MASK_SOURCE
-            target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+            start  = move_source(move)
+            target = move_target(move)
             attacker = state.board[start]
             victim   = state.board[target]
 
             if victim == _NULL_SQ:
-                if flag == _EN_PASSANT:
+                if is_en_passant(move):
                     victim_val = _PIECE_VALUES[_PAWN]
                 else:
                     victim_val = 0
@@ -280,8 +267,8 @@ cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
             scores[i] = _SCORE_KILLER_2
             continue
 
-        start  = move & _MASK_SOURCE
-        target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+        start  = move_source(move)
+        target = move_target(move)
         base_score = ordering.history_table[start][target]
 
         if state.last_moved_piece_sq >= 0 and state.last_moved_piece_sq == start:

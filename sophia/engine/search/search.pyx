@@ -43,10 +43,8 @@ from engine.core.parameters import (
     REVERSE_FUTILITY_MARGIN,
     DEFAULT_TIME_LIMIT,
 )
-from engine.core.move import (
-    CAPTURE_FLAG, PROMO_FLAG, EP_FLAG,
-    move_to_uci, SHIFT_TARGET
-)
+from engine.core.move import move_to_uci
+from engine.core.move cimport is_capture, is_promotion, is_en_passant
 from engine.moves.generator cimport MoveList, generate_pseudo_legal_move_list
 from engine.moves.generator import generate_pseudo_legal_moves
 from engine.board.move_exec cimport (
@@ -72,9 +70,6 @@ from engine.board.state cimport State
 cdef int _INFINITY       = INFINITY
 cdef int _WHITE          = WHITE
 cdef int _BLACK          = BLACK
-cdef int _CAPTURE_FLAG   = CAPTURE_FLAG
-cdef int _PROMO_FLAG     = PROMO_FLAG
-cdef int _EP_FLAG        = EP_FLAG
 cdef int _CHECK_EXT      = CHECK_EXTENSION
 cdef int _LMR_BASE       = LMR_BASE_REDUCTION
 cdef int _LMR_THRESH     = LMR_MOVE_THRESHOLD
@@ -144,6 +139,7 @@ cdef class SearchEngine:
         self.tt = TranspositionTable(tt_size_mb)
         self.pawn_hash = PawnHashTable(32)
         self.syzygy = SyzygyHandler()
+        self.syzygy_cache = {}
         self.ordering = MoveOrdering()
         self.nodes_searched = 0
         self.depth_reached = 0
@@ -275,6 +271,7 @@ cdef class SearchEngine:
         self.nodes_searched = 0
         self.seldepth = 0
         self.tbhits = 0
+        self.syzygy_cache = {}
         self.ponder_move = None
         self.start_time = time.time()
         self.root_colour = state.is_white
@@ -349,7 +346,7 @@ cdef class SearchEngine:
         captures = []
         quiet = []
         for m in moves:
-            if (m & _CAPTURE_FLAG) or (m & _PROMO_FLAG): captures.append(m)
+            if is_capture(<unsigned int>m) or is_promotion(<unsigned int>m): captures.append(m)
             else: quiet.append(m)
         moves = captures + quiet
 
@@ -678,24 +675,6 @@ cdef class SearchEngine:
                 return -_CONTEMPT
             return 0
 
-        all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
-        if all_pieces.bit_count() <= _SYZYGY_THRESH:
-            if _const.DEBUG: self.dbg_syzygy_probes += 1
-            wdl = self.syzygy.probe_wdl(state)
-            if wdl is not None:
-                if _const.DEBUG: self.dbg_syzygy_hits += 1
-                self.tbhits += 1
-                dtz = self.syzygy.probe_dtz(state)
-                TB_WIN_SCORE = _INFINITY - _TB_WIN_MARGIN
-
-                if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
-                elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
-                else: score = 0
-
-                self.tt.store(<unsigned long long>state.hash, <short>depth, score,
-                              <unsigned char>_FLAG_EXACT, 0)
-                return score
-
         _tt_hit = self.tt.probe(<unsigned long long>state.hash,
                                 &_tt_depth, &_tt_score, &_tt_flag, &_tt_move_raw)
         if _tt_hit and _tt_depth >= depth:
@@ -712,6 +691,30 @@ cdef class SearchEngine:
             self.dbg_tt_shallow += 1
 
         if depth <= 0: return self._quiescence(state, alpha, beta, ply)
+
+        all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
+        if all_pieces.bit_count() <= _SYZYGY_THRESH:
+            if _const.DEBUG: self.dbg_syzygy_probes += 1
+            cached = self.syzygy_cache.get(state.hash)
+            if cached is None:
+                wdl = self.syzygy.probe_wdl(state)
+                if wdl is not None:
+                    dtz = self.syzygy.probe_dtz(state)
+                    self.syzygy_cache[state.hash] = (wdl, dtz)
+                    cached = (wdl, dtz)
+            if cached is not None:
+                if _const.DEBUG: self.dbg_syzygy_hits += 1
+                self.tbhits += 1
+                wdl, dtz = cached
+                TB_WIN_SCORE = _INFINITY - _TB_WIN_MARGIN
+
+                if wdl > 0: score = TB_WIN_SCORE - ply - abs(dtz)
+                elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
+                else: score = 0
+
+                self.tt.store(<unsigned long long>state.hash, <short>depth, score,
+                              <unsigned char>_FLAG_EXACT, 0)
+                return score
 
         in_check = is_in_check(state, state.is_white)
 
@@ -804,7 +807,7 @@ cdef class SearchEngine:
             move = moves.moves[i]
 
             see_ok = True
-            if (move & _CAPTURE_FLAG) and depth <= _SEE_CAP:
+            if is_capture(move) and depth <= _SEE_CAP:
                 see_ok = see_cache[i] == 1
 
             old_phase = state.phase
@@ -818,7 +821,7 @@ cdef class SearchEngine:
 
             gives_check = is_in_check(state, state.is_white)
 
-            is_interesting = bool((move & _CAPTURE_FLAG) or (move & _EP_FLAG) or (move & _PROMO_FLAG))
+            is_interesting = is_capture(move) or is_en_passant(move) or is_promotion(move)
 
             if gives_check and time_pressure_mode:
                 is_interesting = True
@@ -846,7 +849,7 @@ cdef class SearchEngine:
                     continue
 
             # SEE pruning
-            if (move & _CAPTURE_FLAG) and depth <= _SEE_CAP and not gives_check:
+            if is_capture(move) and depth <= _SEE_CAP and not gives_check:
                 if _const.DEBUG: self.dbg_see_tests += 1
                 if not see_ok:
                     if _const.DEBUG: self.dbg_see_prunes += 1
@@ -887,7 +890,7 @@ cdef class SearchEngine:
             if value >= beta:
                 if _const.DEBUG:
                     self.dbg_beta_cutoff_idx.append(legal_moves_count - 1)
-                    is_cap = bool(move & _CAPTURE_FLAG)
+                    is_cap = is_capture(move)
                     is_tt  = (tt_move != 0 and move == tt_move)
                     is_kil = (move == k1 or move == k2)
                     if is_tt:        self.dbg_cutoff_by_tt     += 1
@@ -1003,7 +1006,7 @@ cdef class SearchEngine:
             pick_next_move_list(&moves, scores, see_cache, i)
             move = moves.moves[i]
 
-            if not in_check and (move & _CAPTURE_FLAG):
+            if not in_check and is_capture(move):
                 if _const.DEBUG: self.dbg_qsee_tests += 1
                 if see_cache[i] != 1:
                     if _const.DEBUG: self.dbg_qsee_prunes += 1

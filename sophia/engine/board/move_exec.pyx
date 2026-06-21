@@ -4,19 +4,20 @@
 # cython: cdivision=True
 
 from engine.board.state cimport State
-from engine.core.move import (
-    CAPTURE_FLAG, PROMO_FLAG, EP_FLAG, CASTLE_KS_FLAG, CASTLE_QS_FLAG,
-    SHIFT_TARGET, SHIFT_FLAG, SPECIAL_1, SPECIAL_0
+from engine.core.bits cimport lsb
+from engine.core.move cimport (
+    is_capture, is_promotion, is_en_passant, is_castling,
+    move_source, move_target, move_promotion_index
 )
 from engine.core.constants import (
     WHITE, BLACK, NULL as _NULL, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
     CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ,
     A1, H1, A8, H8, E1, C1, G1, E8, C8, G8, F1, D1, F8, D8,
-    MASK_SOURCE,
     WP, WN, WB, WR, WQ, WK,
     BP, BN, BB, BR, BQ, BK,
     NORTH, SOUTH
 )
+from engine.moves.precomputed cimport SQUARE_TO_BB
 from engine.core.zobrist cimport (
     ZOBRIST_PIECES, ZOBRIST_CASTLING, ZOBRIST_EN_PASSANT, ZOBRIST_BLACK_TO_MOVE
 )
@@ -34,21 +35,6 @@ cdef int _A1 = A1, _H1 = H1, _A8 = A8, _H8 = H8
 cdef int _E1 = E1, _C1 = C1, _G1 = G1, _E8 = E8, _C8 = C8, _G8 = G8
 cdef int _F1 = F1, _D1 = D1, _F8 = F8, _D8 = D8
 cdef int _NORTH = NORTH, _SOUTH = SOUTH
-
-cdef int _CAP_FLAG  = CAPTURE_FLAG
-cdef int _PROM_FLAG = PROMO_FLAG
-cdef int _EP_FLAG   = EP_FLAG
-cdef int _CKS_FLAG  = CASTLE_KS_FLAG
-cdef int _CQS_FLAG  = CASTLE_QS_FLAG
-cdef int _MASK_SOURCE = MASK_SOURCE
-cdef int _SHIFT_TARGET = SHIFT_TARGET
-cdef int _SHIFT_FLAG = SHIFT_FLAG
-cdef int _SP1 = SPECIAL_1, _SP0 = SPECIAL_0
-
-
-cdef inline unsigned long long _sq_bb(int sq) noexcept:
-    return (<unsigned long long>1) << sq
-
 
 def is_repetition(State state):
     cdef unsigned long long current_hash
@@ -97,8 +83,8 @@ cpdef bint has_insufficient_material(State state):
     if w_bishops == 1 and b_bishops == 1 and w_knights == 0 and b_knights == 0:
         wb_bb = state.bitboards[_WB]
         bb_bb = state.bitboards[_BB]
-        w_sq  = (wb_bb & -wb_bb).bit_length() - 1
-        b_sq  = (bb_bb & -bb_bb).bit_length() - 1
+        w_sq  = lsb(wb_bb)
+        b_sq  = lsb(bb_bb)
         # same-colour bishops?
         if (w_sq // 8 + w_sq % 8) % 2 == (b_sq // 8 + b_sq % 8) % 2: return True
 
@@ -141,7 +127,7 @@ cpdef void make_move(State state, unsigned int move):
     cdef int promo_idx, promo_piece_type, promoted_piece, target_piece
     cdef int piece_type, captured_type
     cdef int rook, r_from, r_to
-    cdef int ep_key, flag_shifted
+    cdef int ep_key
     cdef unsigned long long start_mask, target_mask, cap_mask
 
     cdef unsigned long long old_hash     = state.hash
@@ -155,8 +141,8 @@ cpdef void make_move(State state, unsigned int move):
     cdef unsigned long long old_b_passed = state.black_passed_pawns
     cdef int old_last_moved              = state.last_moved_piece_sq
 
-    start_sq  = move & _MASK_SOURCE
-    target_sq = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+    start_sq  = move_source(move)
+    target_sq = move_target(move)
 
     moving_piece = state.board[start_sq]
 
@@ -171,8 +157,8 @@ cpdef void make_move(State state, unsigned int move):
         ep_offset   = _NORTH
         enemy_pawn  = _WP
 
-    start_mask  = _sq_bb(start_sq)
-    target_mask = _sq_bb(target_sq)
+    start_mask  = SQUARE_TO_BB[start_sq]
+    target_mask = SQUARE_TO_BB[target_sq]
 
     state.mg_score -= MG_TABLE_C[moving_piece][start_sq]
     state.eg_score -= EG_TABLE_C[moving_piece][start_sq]
@@ -185,12 +171,12 @@ cpdef void make_move(State state, unsigned int move):
     captured_piece = _NULL_VAL
 
     # capture
-    if move & _CAP_FLAG:
+    if is_capture(move):
         # en-passant
-        if (move >> _SHIFT_FLAG) == (_EP_FLAG >> _SHIFT_FLAG):
+        if is_en_passant(move):
             capture_sq     = target_sq + ep_offset
             captured_piece = enemy_pawn
-            cap_mask       = _sq_bb(capture_sq)
+            cap_mask       = SQUARE_TO_BB[capture_sq]
 
             state.bitboards[captured_piece] &= ~cap_mask
             state.bitboards[opponent_bb]    &= ~cap_mask
@@ -228,8 +214,8 @@ cpdef void make_move(State state, unsigned int move):
                     state.black_passed_pawns &= ~target_mask
 
     # promotion
-    if move & _PROM_FLAG:
-        promo_idx        = (move >> _SHIFT_FLAG) & (_SP1 | _SP0)
+    if is_promotion(move):
+        promo_idx        = move_promotion_index(move)
         promo_types      = (_KNIGHT, _BISHOP, _ROOK, _QUEEN)
         promo_piece_type = promo_types[promo_idx]
 
@@ -258,7 +244,7 @@ cpdef void make_move(State state, unsigned int move):
 
     # update passed pawn tracking for pawn push
     piece_type = moving_piece & ~_WHITE
-    if piece_type == _PAWN and not (move & _PROM_FLAG):
+    if piece_type == _PAWN and not is_promotion(move):
         if state.is_white:
             state.white_passed_pawns &= ~start_mask
             state.white_passed_pawns |= target_mask
@@ -267,8 +253,7 @@ cpdef void make_move(State state, unsigned int move):
             state.black_passed_pawns |= target_mask
 
     # castling rook relocation
-    flag_shifted = move >> _SHIFT_FLAG
-    if flag_shifted == (_CKS_FLAG >> _SHIFT_FLAG) or flag_shifted == (_CQS_FLAG >> _SHIFT_FLAG):
+    if is_castling(move):
         rook = _WR if state.is_white else _BR
         r_from = 0; r_to = 0
 
@@ -277,10 +262,10 @@ cpdef void make_move(State state, unsigned int move):
         elif target_sq == _G8: r_from = _H8; r_to = _F8
         elif target_sq == _C8: r_from = _A8; r_to = _D8
 
-        state.bitboards[rook]     &= ~_sq_bb(r_from)
-        state.bitboards[rook]     |=  _sq_bb(r_to)
-        state.bitboards[active_bb] &= ~_sq_bb(r_from)
-        state.bitboards[active_bb] |=  _sq_bb(r_to)
+        state.bitboards[rook]     &= ~SQUARE_TO_BB[r_from]
+        state.bitboards[rook]     |=  SQUARE_TO_BB[r_to]
+        state.bitboards[active_bb] &= ~SQUARE_TO_BB[r_from]
+        state.bitboards[active_bb] |=  SQUARE_TO_BB[r_to]
 
         state.hash ^= ZOBRIST_PIECES[rook][r_from]
         state.hash ^= ZOBRIST_PIECES[rook][r_to]
@@ -317,7 +302,7 @@ cpdef void make_move(State state, unsigned int move):
     ep_key = state.en_passant_square % 8 if state.en_passant_square != _NULL_VAL else 8
     state.hash ^= ZOBRIST_EN_PASSANT[ep_key]
 
-    if piece_type == _PAWN or (move & _CAP_FLAG):
+    if piece_type == _PAWN or is_capture(move):
         state.halfmove_clock = 0
     else:
         state.halfmove_clock += 1
@@ -349,7 +334,7 @@ cpdef void unmake_move(State state, unsigned int move):
     cdef int start_sq, target_sq
     cdef int target_piece, active_bb, opponent_bb
     cdef int rook, r_from, r_to
-    cdef int flag_shifted, capture_sq, ep_offset
+    cdef int capture_sq, ep_offset
     cdef int captured_piece, old_castling, old_ep, old_halfmove
     cdef int old_mg, old_eg, old_phase, old_last_moved
     cdef int pawn
@@ -384,15 +369,15 @@ cpdef void unmake_move(State state, unsigned int move):
         active_bb   = _BLACK
         opponent_bb = _WHITE
 
-    start_sq  = move & _MASK_SOURCE
-    target_sq = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+    start_sq  = move_source(move)
+    target_sq = move_target(move)
 
-    start_mask  = _sq_bb(start_sq)
-    target_mask = _sq_bb(target_sq)
+    start_mask  = SQUARE_TO_BB[start_sq]
+    target_mask = SQUARE_TO_BB[target_sq]
 
     target_piece = state.board[target_sq]
 
-    if move & _PROM_FLAG:
+    if is_promotion(move):
         state.bitboards[target_piece] &= ~target_mask
         state.bitboards[active_bb]    &= ~target_mask
         state.board[target_sq] = _NULL_VAL
@@ -413,8 +398,7 @@ cpdef void unmake_move(State state, unsigned int move):
         state.board[target_sq] = _NULL_VAL
         state.board[start_sq]  = target_piece
 
-        flag_shifted = move >> _SHIFT_FLAG
-        if flag_shifted == (_CKS_FLAG >> _SHIFT_FLAG) or flag_shifted == (_CQS_FLAG >> _SHIFT_FLAG):
+        if is_castling(move):
             rook = _WR if state.is_white else _BR
             r_from = 0; r_to = 0
             if target_sq == _G1:   r_from = _H1; r_to = _F1
@@ -422,10 +406,10 @@ cpdef void unmake_move(State state, unsigned int move):
             elif target_sq == _G8: r_from = _H8; r_to = _F8
             elif target_sq == _C8: r_from = _A8; r_to = _D8
 
-            state.bitboards[rook]      &= ~_sq_bb(r_to)
-            state.bitboards[rook]      |=  _sq_bb(r_from)
-            state.bitboards[active_bb] &= ~_sq_bb(r_to)
-            state.bitboards[active_bb] |=  _sq_bb(r_from)
+            state.bitboards[rook]      &= ~SQUARE_TO_BB[r_to]
+            state.bitboards[rook]      |=  SQUARE_TO_BB[r_from]
+            state.bitboards[active_bb] &= ~SQUARE_TO_BB[r_to]
+            state.bitboards[active_bb] |=  SQUARE_TO_BB[r_from]
 
             state.board[r_to]   = _NULL_VAL
             state.board[r_from] = rook
@@ -433,11 +417,11 @@ cpdef void unmake_move(State state, unsigned int move):
     if captured_piece != _NULL_VAL:
         state.piece_counts[captured_piece] += 1
 
-        if (move >> _SHIFT_FLAG) == (_EP_FLAG >> _SHIFT_FLAG):
+        if is_en_passant(move):
             ep_offset  = _SOUTH if state.is_white else _NORTH
             capture_sq = target_sq + ep_offset
-            state.bitboards[captured_piece] |= _sq_bb(capture_sq)
-            state.bitboards[opponent_bb]    |= _sq_bb(capture_sq)
+            state.bitboards[captured_piece] |= SQUARE_TO_BB[capture_sq]
+            state.bitboards[opponent_bb]    |= SQUARE_TO_BB[capture_sq]
             state.board[capture_sq] = captured_piece
         else:
             state.bitboards[captured_piece] |= target_mask

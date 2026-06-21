@@ -4,7 +4,6 @@
 # cython: cdivision=True
 
 from engine.core.utils import bit_to_algebraic
-from engine.core.constants import MASK_SOURCE
 
 # flag bit layout: [ Promotion | Capture | Special 1 | Special 0 ]
 ZERO        = 0b0000
@@ -56,20 +55,12 @@ EP_FLAG        = EN_PASSANT << SHIFT_FLAG
 CASTLE_KS_FLAG = CASTLE_KS << SHIFT_FLAG
 CASTLE_QS_FLAG = CASTLE_QS << SHIFT_FLAG
 
-cdef int _MASK_SOURCE = MASK_SOURCE
-cdef int _SHIFT_TARGET = SHIFT_TARGET
-cdef int _SHIFT_FLAG = SHIFT_FLAG
-
 # square names for UCI
 SQUARE_NAMES = [bit_to_algebraic(square) for square in range(64)]
 
 # mapping flag bits to piece types
 PROMO_TYPE_LOOKUP = (KNIGHT, BISHOP, ROOK, QUEEN)
 PROMO_CHAR_LOOKUP = ('n', 'b', 'r', 'q')
-
-
-cdef inline unsigned int _pack(int start, int target, int flag) noexcept nogil:
-    return start | (target << _SHIFT_TARGET) | (flag << _SHIFT_FLAG)
 
 
 # python-callable wrapper so code that imports as a python symbol
@@ -79,12 +70,12 @@ def pack(int start, int target, int flag=0):
 
 cpdef str move_to_uci(unsigned int move):
     cdef int start, target, idx
-    start  = move & _MASK_SOURCE
-    target = (move >> _SHIFT_TARGET) & _MASK_SOURCE
+    start  = move_source(move)
+    target = move_target(move)
     uci_str = SQUARE_NAMES[start] + SQUARE_NAMES[target]
 
-    if move & PROMO_FLAG:
-        idx = (move >> _SHIFT_FLAG) & (SPECIAL_1 | SPECIAL_0)
+    if is_promotion(move):
+        idx = move_promotion_index(move)
         uci_str += PROMO_CHAR_LOOKUP[idx]
 
     return uci_str

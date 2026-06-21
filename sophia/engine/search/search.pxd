@@ -28,6 +28,7 @@ cdef class SearchEngine:
     cdef public object ponder_move
     cdef public object nodes_limit
     cdef public object opponent_time_ms
+    cdef public object syzygy_cache
 
     # debug counters
     cdef public int dbg_nmp_attempts

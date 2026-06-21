@@ -15,6 +15,7 @@ cdef unsigned long long WHITE_PAWN_ATTACKS[64]
 cdef unsigned long long BLACK_PAWN_ATTACKS[64]
 cdef unsigned long long BISHOP_MASKS[64]
 cdef unsigned long long ROOK_MASKS[64]
+cdef unsigned long long SQUARE_TO_BB[64]
 cdef unsigned long long* BISHOP_ATTACKS = NULL
 cdef unsigned long long* ROOK_ATTACKS = NULL
 cdef int BISHOP_OFFSETS[64]
@@ -162,6 +163,7 @@ cdef void _init_all():
     cdef object sq_table
 
     for sq in range(64):
+        SQUARE_TO_BB[sq]        = (<unsigned long long>1) << sq
         KNIGHT_ATTACKS[sq]      = _knight_attacks(sq)
         KING_ATTACKS[sq]        = _king_attacks(sq)
         WHITE_PAWN_ATTACKS[sq]  = _pawn_attacks(sq, True)
