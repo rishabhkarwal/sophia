@@ -265,7 +265,7 @@ class UCI:
         if self._ponder_thread is not None and self._ponder_thread.is_alive():
             # search still running — apply the real time limit
             self.engine.time_limit = time_limit
-            self.engine.start_time = time.time()
+            self.engine.limit_start_time = time.time()
             soft = time_limit / 1000.0
             if is_movetime:
                 self.engine.soft_time_limit = soft

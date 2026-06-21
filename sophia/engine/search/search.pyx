@@ -146,6 +146,7 @@ cdef class SearchEngine:
         self.seldepth = 0
         self.tbhits = 0
         self.start_time = 0.0
+        self.limit_start_time = 0.0
         self.root_colour = WHITE
 
         # dynamic aspiration windows
@@ -214,7 +215,7 @@ cdef class SearchEngine:
         if self.nodes_limit is not None and self.nodes_searched >= self.nodes_limit:
             raise TimeoutError("nodes limit reached")
 
-        elapsed = time.time() - self.start_time
+        elapsed = time.time() - self.limit_start_time
 
         if elapsed >= self.hard_time_limit:
             raise TimeoutError("hard time limit exceeded")
@@ -274,6 +275,7 @@ cdef class SearchEngine:
         self.syzygy_cache = {}
         self.ponder_move = None
         self.start_time = time.time()
+        self.limit_start_time = self.start_time
         self.root_colour = state.is_white
 
         if _const.DEBUG:
@@ -508,7 +510,7 @@ cdef class SearchEngine:
 
                 if not is_movetime and depth_limit is None and nodes_limit is None:
                     time_usage_pct = TIME_USAGE_LONG if self.time_limit > TIME_USAGE_TC_THRESHOLD else TIME_USAGE_SHORT
-                    elapsed = time.time() - self.start_time
+                    elapsed = time.time() - self.limit_start_time
                     if elapsed > self.soft_time_limit * time_usage_pct:
                         break
 

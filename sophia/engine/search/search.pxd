@@ -10,6 +10,7 @@ cdef class SearchEngine:
     cdef public int   seldepth
     cdef public int   tbhits
     cdef public double start_time
+    cdef public double limit_start_time
     cdef public double hard_time_limit
     cdef public double soft_time_limit
     cdef public int   check_interval
