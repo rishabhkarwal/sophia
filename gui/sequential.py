@@ -3,6 +3,7 @@ from gui.engine import Wrapper
 from gui.console import log, log_error, log_info, log_engine, Colour
 from gui.evaluator import Evaluator
 from gui.graphics import GUI
+from gui.worker import _position_cmd
 
 import chess
 import chess.pgn
@@ -84,10 +85,10 @@ class SequentialTournament:
                     engine._send_cmd('stop')
                     self._drain_bestmove(engine)
                     self._sync_engine(engine)
-                    engine._send_cmd(f'position fen {board.fen()}')
+                    engine._send_cmd(_position_cmd(board, None))
                     engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
             else:
-                engine._send_cmd(f'position fen {board.fen()}')
+                engine._send_cmd(_position_cmd(board, None))
                 engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
 
             turn_start_time = time.time()
@@ -189,7 +190,7 @@ class SequentialTournament:
             if ponder_move_str and engine.supports_ponder and not board.is_game_over():
                 w_ms2 = int(w_time * 1000)
                 b_ms2 = int(b_time * 1000)
-                engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
+                engine._send_cmd(_position_cmd(board, None, extra_moves=[ponder_move_str]))
                 engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
                 ponder_state[engine] = ponder_move_str
 

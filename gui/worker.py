@@ -7,12 +7,25 @@ import io
 from gui.engine import Wrapper
 from gui.types import GameAssignment, GameUpdate, GameResult
 
-# set by pool initializer — avoids pickling issues
+# set by pool initialiser — avoids pickling issues
 _update_queue = None
 
 def _init_worker(q):
     global _update_queue
     _update_queue = q
+
+def _position_cmd(board, starting_fen, extra_moves=None):
+    """emit a uci position command carrying full game history so the engine can detect repetition"""
+    moves = [m.uci() for m in board.move_stack]
+    if extra_moves:
+        moves.extend(extra_moves)
+    if starting_fen and starting_fen != chess.STARTING_FEN:
+        cmd = f'position fen {starting_fen}'
+    else:
+        cmd = 'position startpos'
+    if moves:
+        cmd += ' moves ' + ' '.join(moves)
+    return cmd
 
 def play_game(assignment: GameAssignment) -> GameResult:
     a = assignment
@@ -79,10 +92,10 @@ def play_game(assignment: GameAssignment) -> GameResult:
                     engine._send_cmd('stop')
                     _drain_bestmove(engine)
                     _sync_engine(engine)
-                    engine._send_cmd(f'position fen {board.fen()}')
+                    engine._send_cmd(_position_cmd(board, a.starting_fen))
                     engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
             else:
-                engine._send_cmd(f'position fen {board.fen()}')
+                engine._send_cmd(_position_cmd(board, a.starting_fen))
                 engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
 
             if ponderhit:
@@ -141,7 +154,7 @@ def play_game(assignment: GameAssignment) -> GameResult:
                 w_ms2 = int(w_time * 1000)
                 b_ms2 = int(b_time * 1000)
                 # position must include ponder move as last move, not the fen after it
-                engine._send_cmd(f'position fen {board.fen()} moves {ponder_move_str}')
+                engine._send_cmd(_position_cmd(board, a.starting_fen, extra_moves=[ponder_move_str]))
                 engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
                 ponder_state[engine] = ponder_move_str
                 if not engine.quiet:
