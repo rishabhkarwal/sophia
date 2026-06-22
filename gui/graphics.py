@@ -105,6 +105,7 @@ class GUI:
         # move list surface cache — only rebuilt when new moves arrive
         self._move_list_cache: pygame.Surface | None = None
         self._move_list_cache_move_count = -1
+        self._starting_fen: str | None = None
 
         self.piece_images = {}
         self._load_assets()
@@ -251,6 +252,12 @@ class GUI:
         rx = BAR_X - rotated.get_width() - 3
         ry = BAR_Y + BAR_H // 2 - rotated.get_height() // 2
         self.screen.blit(rotated, (rx, ry))
+
+    def set_starting_fen(self, fen: str | None):
+        self._starting_fen = fen
+        self._move_list_cache = None
+        self.last_move_count = 0
+        self.scroll_y = 0
 
     def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None, eval_depth=0, engine_arrow=None, sf_arrow=None):
         if eval_cp is not None:
@@ -808,7 +815,7 @@ class GUI:
             surf = pygame.Surface((cache_w, cache_h))
             surf.fill(Palette.CARD_BG)
 
-            temp_board = chess.Board()
+            temp_board = chess.Board(self._starting_fen) if self._starting_fen else chess.Board()
             move_num = 1
             for i in range(0, move_count, 2):
                 y_pos = (move_num - 1) * line_height + 6

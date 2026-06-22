@@ -8,6 +8,8 @@ from gui.worker import _position_cmd
 import chess
 import chess.pgn
 import datetime
+import os
+import random
 import select
 import time
 import threading
@@ -29,9 +31,16 @@ class SequentialTournament:
         self.engine_2.start()
         log_info('Initialised engines')
 
+        openings = self._load_openings()
+
         try:
             for i in range(1, self.cfg.total_games + 1):
-                self._play_game(i)
+                pair_idx = (i - 1) // 2
+                if pair_idx == 0:
+                    fen = None
+                else:
+                    fen = openings[(pair_idx - 1) % len(openings)] if openings else None
+                self._play_game(i, fen)
                 time.sleep(5)
         except KeyboardInterrupt:
             log_info('Tournament stopped')
@@ -42,8 +51,9 @@ class SequentialTournament:
             self.gui.quit()
             self._print_final_results()
 
-    def _play_game(self, game_number):
-        board = chess.Board()
+    def _play_game(self, game_number, starting_fen=None):
+        board = chess.Board(starting_fen) if starting_fen else chess.Board()
+        self.gui.set_starting_fen(starting_fen)
         self.evaluator.update_position(board)
 
         if game_number & 1: white_engine, black_engine = self.engine_1, self.engine_2
@@ -85,10 +95,10 @@ class SequentialTournament:
                     engine._send_cmd('stop')
                     self._drain_bestmove(engine)
                     self._sync_engine(engine)
-                    engine._send_cmd(_position_cmd(board, None))
+                    engine._send_cmd(_position_cmd(board, starting_fen))
                     engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
             else:
-                engine._send_cmd(_position_cmd(board, None))
+                engine._send_cmd(_position_cmd(board, starting_fen))
                 engine._send_cmd(f'go wtime {w_ms} btime {b_ms} winc {inc_ms} binc {inc_ms}')
 
             turn_start_time = time.time()
@@ -192,7 +202,7 @@ class SequentialTournament:
             if ponder_move_str and engine.supports_ponder and not board.is_game_over():
                 w_ms2 = int(w_time * 1000)
                 b_ms2 = int(b_time * 1000)
-                engine._send_cmd(_position_cmd(board, None, extra_moves=[ponder_move_str]))
+                engine._send_cmd(_position_cmd(board, starting_fen, extra_moves=[ponder_move_str]))
                 engine._send_cmd(f'go ponder wtime {w_ms2} btime {b_ms2} winc {inc_ms} binc {inc_ms}')
                 ponder_state[engine] = ponder_move_str
 
@@ -216,7 +226,7 @@ class SequentialTournament:
 
         log_info(f"Game Over: {result_text} ({termination_reason})")
         self._update_score(result_text, white_engine, black_engine)
-        self._save_pgn(board, white_engine, black_engine, result_text, termination_reason, game_number)
+        self._save_pgn(board, white_engine, black_engine, result_text, termination_reason, game_number, starting_fen)
 
         end_time = time.time()
         while time.time() - end_time < 1:
@@ -229,9 +239,22 @@ class SequentialTournament:
             self.gui.draw(board, white_engine, black_engine, game_number, self.cfg.total_games, w_time, b_time, result_text, **ev)
 
 
-    def _save_pgn(self, board, white, black, result, termination, round_num):
+    def _load_openings(self):
+        path = self.cfg.openings_file
+        default = os.path.join(os.path.dirname(__file__), 'assets', 'openings.txt')
+        if path is None and os.path.exists(default):
+            path = default
+        if path is None or not os.path.exists(path):
+            return None
+        with open(path, 'r') as f:
+            lines = [line.strip() for line in f if line.strip()]
+        random.shuffle(lines)
+        return lines if lines else None
+
+    def _save_pgn(self, board, white, black, result, termination, round_num, starting_fen=None):
         try:
-            game = chess.pgn.Game()
+            root = chess.Board(starting_fen) if starting_fen else chess.Board()
+            game = chess.pgn.Game.from_board(root)
             game.headers["Event"] = "Engine Tournament"
             game.headers["Site"] = "Local"
             game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")

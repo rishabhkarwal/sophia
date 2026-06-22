@@ -92,7 +92,10 @@ class ParallelTournament:
 
         for i in range(cfg.total_games):
             pair_idx = i // 2
-            fen = openings[pair_idx % len(openings)] if openings else None
+            if pair_idx == 0:
+                fen = None
+            else:
+                fen = openings[(pair_idx - 1) % len(openings)] if openings else None
             white_is_engine_1 = (i % 2 == 0)
 
             assignments.append(GameAssignment(
