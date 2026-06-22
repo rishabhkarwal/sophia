@@ -18,7 +18,7 @@ from engine.core.parameters import (
     KING_TO_CENTRE_BONUS, KING_TO_ENEMY_PAWNS_BONUS,
     BISHOP_PAIR_BONUS, ROOK_OPEN_FILE, ROOK_SEMI_OPEN_FILE,
     KNIGHT_MOBILITY, BISHOP_MOBILITY, ROOK_MOBILITY, QUEEN_MOBILITY,
-    WINNING_THRESHOLD, LOSING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE,
+    TRADING_THRESHOLD, TRADE_BONUS_PER_PIECE, TRADE_PENALTY_PER_PIECE,
     PHASE_GATE_DOUBLED_PAWNS, PHASE_GATE_KING_SAFETY,
     PHASE_GATE_MOBILITY, PHASE_GATE_KING_ENDGAME,
     MOP_UP_ACTIVATION, MOP_UP_CENTRE_WEIGHT, MOP_UP_DISTANCE_WEIGHT, MOP_UP_MAX_DISTANCE,
@@ -334,7 +334,7 @@ cdef int get_mop_up_score(State state, bint winning_is_white) noexcept:
 
 cdef int evaluate_trading_bonus(State state, int base_eval) noexcept:
     cdef int w_pieces, b_pieces, total_pieces, simplification_level
-    if LOSING_THRESHOLD <= base_eval <= WINNING_THRESHOLD:
+    if -TRADING_THRESHOLD <= base_eval <= TRADING_THRESHOLD:
         return 0
 
     w_pieces = (popcount(state.bitboards[WN]) + popcount(state.bitboards[WB]) +
@@ -345,9 +345,9 @@ cdef int evaluate_trading_bonus(State state, int base_eval) noexcept:
     total_pieces = w_pieces + b_pieces
     simplification_level = TRADING_STARTING_PIECES - total_pieces
 
-    if base_eval > WINNING_THRESHOLD:
+    if base_eval > TRADING_THRESHOLD:
         return simplification_level * TRADE_BONUS_PER_PIECE
-    elif base_eval < LOSING_THRESHOLD:
+    elif base_eval < -TRADING_THRESHOLD:
         return -simplification_level * TRADE_PENALTY_PER_PIECE
 
     return 0

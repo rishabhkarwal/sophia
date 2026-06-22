@@ -63,8 +63,7 @@ ROOK_MOBILITY = 6
 QUEEN_MOBILITY = 2
 
 # trading behaviour
-WINNING_THRESHOLD = 186
-LOSING_THRESHOLD = -100
+TRADING_THRESHOLD = 350
 TRADE_BONUS_PER_PIECE = 10
 TRADE_PENALTY_PER_PIECE = 10
 
@@ -372,8 +371,7 @@ _TUNE_PARAM_ALIASES = {
     "king_to_enemy_pawns_bonus": "KING_TO_ENEMY_PAWNS_BONUS",
     "trade_bonus_per_piece":    "TRADE_BONUS_PER_PIECE",
     "trade_penalty_per_piece":  "TRADE_PENALTY_PER_PIECE",
-    "winning_threshold":        "WINNING_THRESHOLD",
-    "losing_threshold":         "LOSING_THRESHOLD",
+    "trading_threshold":        "TRADING_THRESHOLD",
     "mop_up_activation":        "MOP_UP_ACTIVATION",
     "mop_up_centre_weight":     "MOP_UP_CENTRE_WEIGHT",
     "mop_up_distance_weight":   "MOP_UP_DISTANCE_WEIGHT",
