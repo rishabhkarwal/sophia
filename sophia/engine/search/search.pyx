@@ -18,7 +18,7 @@ from engine.core.parameters import (
     PIECE_VALUES,
     RAZOR_MARGIN, STATIC_NULL_MARGIN, FUTILITY_MARGIN,
     LMR_BASE_REDUCTION, LMR_MOVE_THRESHOLD,
-    LMR_MIN_DEPTH, LMR_NON_PV_REDUCTION, LMR_CHECK_PRESSURE_DECREMENT,
+    LMR_MIN_DEPTH, LMR_NON_PV_REDUCTION,
     PHASE_TRANSITION_EXTENSION,
     LMP_BASE, LMP_MULTIPLIER,
     NMP_BASE_REDUCTION, NMP_DEPTH_REDUCTION, NMP_EVAL_MARGIN,
@@ -82,7 +82,6 @@ cdef int _NMP_EVAL_MARGIN = NMP_EVAL_MARGIN
 cdef int _NMP_EVAL_EXTRA_RED = NMP_EVAL_EXTRA_REDUCTION
 cdef int _LMR_MIN_DEPTH  = LMR_MIN_DEPTH
 cdef int _LMR_NON_PV_RED = LMR_NON_PV_REDUCTION
-cdef int _LMR_CHK_DEC    = LMR_CHECK_PRESSURE_DECREMENT
 cdef int _PHASE_EXT      = PHASE_TRANSITION_EXTENSION
 cdef int _STATIC_NULL    = STATIC_NULL_MARGIN
 cdef int _CONTEMPT       = CONTEMPT
@@ -123,9 +122,26 @@ cdef int _TIME_CHK_TIGHT    = TIME_CHECK_TIGHT
 cdef int _MATE_MARGIN       = MATE_SCORE_MARGIN
 cdef int _ASP_MIN_DEPTH     = ASPIRATION_MIN_DEPTH
 cdef int _ASP_STAB_COUNT    = ASPIRATION_STABILITY_COUNT
+cdef int _TT_SCORE_BOUND    = INFINITY - 2 * MATE_SCORE_MARGIN
 
 _RAZOR_MARGIN_LIST   = list(RAZOR_MARGIN)
 _FUTILITY_MARGIN_LIST = list(FUTILITY_MARGIN)
+
+
+cdef inline int _score_to_tt(int score, int ply) noexcept:
+    if score >= _TT_SCORE_BOUND:
+        return score + ply
+    if score <= -_TT_SCORE_BOUND:
+        return score - ply
+    return score
+
+
+cdef inline int _score_from_tt(int score, int ply) noexcept:
+    if score >= _TT_SCORE_BOUND:
+        return score - ply
+    if score <= -_TT_SCORE_BOUND:
+        return score + ply
+    return score
 
 
 class TimeoutError(Exception):
@@ -262,7 +278,8 @@ cdef class SearchEngine:
 
             send_command(f"info depth {abs(dtz)} score {score_str} pv {syzygy_move} tbhits {self.tbhits} string syzygy hit")
 
-            self.tt.store_entry(state.hash, _MAX_DEPTH, score, _FLAG_EXACT, None)
+            self.tt.store(<unsigned long long>state.hash, <short>_MAX_DEPTH,
+                          _score_to_tt(score, ply), <unsigned char>_FLAG_EXACT, 0)
 
             return syzygy_move
 
@@ -530,8 +547,12 @@ cdef class SearchEngine:
         cdef int child_depth
         cdef int old_phase
         cdef int value
+        cdef int alpha_orig, beta_orig, flag
         cdef unsigned int tt_move, k1, k2, counter
         cdef object tt_entry, best_move
+
+        alpha_orig = alpha
+        beta_orig = beta
 
         tt_entry = self.tt.probe_entry(state.hash)
         tt_move = <unsigned int>tt_entry[4] if (tt_entry and tt_entry[4] is not None) else 0
@@ -569,9 +590,20 @@ cdef class SearchEngine:
 
             if value > alpha:
                 alpha = value
-                if alpha >= beta: return best_move, alpha
+                if alpha >= beta:
+                    self.tt.store(<unsigned long long>state.hash, <short>depth,
+                                  _score_to_tt(alpha, ply),
+                                  <unsigned char>_FLAG_LB, move)
+                    return best_move, alpha
 
-        self.tt.store_entry(state.hash, depth, best_value, _FLAG_EXACT, best_move)
+        flag = _FLAG_EXACT
+        if best_value <= alpha_orig: flag = _FLAG_UB
+        elif best_value >= beta_orig: flag = _FLAG_LB
+
+        self.tt.store(<unsigned long long>state.hash, <short>depth,
+                      _score_to_tt(best_value, ply),
+                      <unsigned char>flag,
+                      <unsigned int>best_move if best_move is not None else 0)
 
         return best_move, best_value
 
@@ -683,6 +715,8 @@ cdef class SearchEngine:
 
         _tt_hit = self.tt.probe(<unsigned long long>state.hash,
                                 &_tt_depth, &_tt_score, &_tt_flag, &_tt_move_raw)
+        if _tt_hit:
+            _tt_score = _score_from_tt(_tt_score, ply)
         if _tt_hit and _tt_depth >= depth:
             if _tt_flag == _FLAG_EXACT:
                 if _const.DEBUG: self.dbg_tt_exact_used += 1
@@ -718,7 +752,8 @@ cdef class SearchEngine:
                 elif wdl < 0: score = -TB_WIN_SCORE + ply + abs(dtz)
                 else: score = 0
 
-                self.tt.store(<unsigned long long>state.hash, <short>depth, score,
+                self.tt.store(<unsigned long long>state.hash, <short>depth,
+                              _score_to_tt(score, ply),
                               <unsigned char>_FLAG_EXACT, 0)
                 return score
 
@@ -870,8 +905,6 @@ cdef class SearchEngine:
                 reduction = _LMR_BASE
                 if legal_moves_count >= _LMR_HEAVY_THRESH: reduction = _LMR_HEAVY_RED
                 if not is_pv: reduction += _LMR_NON_PV_RED
-                if gives_check and time_pressure_mode:
-                    reduction = max(0, reduction - _LMR_CHK_DEC)
 
                 reduced_depth = max(1, depth - 1 - reduction)
                 val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, move, True, False)
@@ -903,7 +936,8 @@ cdef class SearchEngine:
                     elif is_kil:     self.dbg_cutoff_by_killer += 1
                     elif is_cap:     self.dbg_cutoff_by_cap    += 1
                     else:            self.dbg_cutoff_by_quiet  += 1
-                self.tt.store(<unsigned long long>state.hash, <short>depth, beta,
+                self.tt.store(<unsigned long long>state.hash, <short>depth,
+                              _score_to_tt(beta, ply),
                               <unsigned char>_FLAG_LB, move)
                 self.ordering.store_killer(depth, move)
                 self.ordering.store_history(move, depth)
@@ -930,7 +964,8 @@ cdef class SearchEngine:
         flag = _FLAG_EXACT
         if best_value <= alpha_orig: flag = _FLAG_UB
 
-        self.tt.store(<unsigned long long>state.hash, <short>depth, best_value,
+        self.tt.store(<unsigned long long>state.hash, <short>depth,
+                      _score_to_tt(best_value, ply),
                       <unsigned char>flag,
                       <unsigned int>best_move if best_move is not None else 0)
 
@@ -969,6 +1004,7 @@ cdef class SearchEngine:
         _tt_hit = self.tt.probe(key, &_tt_depth, &_tt_score, &_tt_flag, &_tt_move_raw)
 
         if _tt_hit:
+            _tt_score = _score_from_tt(_tt_score, ply)
             if _tt_flag == _FLAG_EXACT: return _tt_score
             elif _tt_flag == _FLAG_LB:
                 if _tt_score >= beta: return _tt_score

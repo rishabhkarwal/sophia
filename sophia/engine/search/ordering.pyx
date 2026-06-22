@@ -55,6 +55,14 @@ _PIECE_VALUES[_QUEEN]  = PIECE_VALUES[QUEEN]
 _PIECE_VALUES[_KING]   = PIECE_VALUES[KING]
 
 
+cdef inline int _promoted_piece_value(unsigned int move) noexcept:
+    cdef int idx = move_flag(move) & 3
+    if idx == 0: return _PIECE_VALUES[_KNIGHT]
+    if idx == 1: return _PIECE_VALUES[_BISHOP]
+    if idx == 2: return _PIECE_VALUES[_ROOK]
+    return _PIECE_VALUES[_QUEEN]
+
+
 cdef class MoveOrdering:
     def __init__(self):
         cdef int i, j
@@ -145,6 +153,9 @@ cdef class MoveOrdering:
                     victim_val = 0
             else:
                 victim_val = _PIECE_VALUES[victim & ~_WHITE]
+
+            if is_promotion(move):
+                victim_val += _promoted_piece_value(move) - _PIECE_VALUES[_PAWN]
 
             attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
             mvv_lva = _MVV_LVA_MULT * victim_val - attacker_val
@@ -239,6 +250,9 @@ cdef void score_move_list(MoveList* moves, int* scores, signed char* see_cache,
                     victim_val = 0
             else:
                 victim_val = _PIECE_VALUES[victim & ~_WHITE]
+
+            if is_promotion(move):
+                victim_val += _promoted_piece_value(move) - _PIECE_VALUES[_PAWN]
 
             attacker_val = _PIECE_VALUES[attacker & ~_WHITE]
             mvv_lva = _MVV_LVA_MULT * victim_val - attacker_val

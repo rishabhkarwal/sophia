@@ -488,7 +488,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
 
         if not (w_pawns & file_mask) and not (b_pawns & file_mask):
             score_adj += ROOK_OPEN_FILE
-        elif not (b_pawns & file_mask):
+        elif not (w_pawns & file_mask):
             score_adj += ROOK_SEMI_OPEN_FILE
 
         if rank == 6:
@@ -518,7 +518,7 @@ cpdef int evaluate(State state, object pawn_hash_table=None):
 
         if not (w_pawns & file_mask) and not (b_pawns & file_mask):
             score_adj += ROOK_OPEN_FILE
-        elif not (w_pawns & file_mask):
+        elif not (b_pawns & file_mask):
             score_adj += ROOK_SEMI_OPEN_FILE
 
         if rank == 1:
