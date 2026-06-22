@@ -140,11 +140,13 @@ class SequentialTournament:
                         break
 
                 self.gui.handle_events()
-                ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
+                ev = {}
                 sf_arrow = None
-                if self.evaluator.available and self.evaluator.current_bestmove is not None:
-                    if self.evaluator.current_bestmove_fen == board.fen():
-                        sf_arrow = self.evaluator.current_bestmove
+                if self.evaluator.available:
+                    snap = self.evaluator.snap
+                    if snap.fen == board.fen():
+                        ev = {"eval_cp": snap.cp, "eval_mate": snap.mate, "eval_depth": snap.depth}
+                        if snap.best is not None: sf_arrow = snap.best
                 self.gui.draw(
                     board, white_engine, black_engine,
                     game_number, self.cfg.total_games,
@@ -219,7 +221,11 @@ class SequentialTournament:
         end_time = time.time()
         while time.time() - end_time < 1:
             self.gui.handle_events()
-            ev = {"eval_cp": self.evaluator.current_cp, "eval_mate": self.evaluator.current_mate} if self.evaluator.available else {}
+            ev = {}
+            if self.evaluator.available:
+                snap = self.evaluator.snap
+                if snap.fen == board.fen():
+                    ev = {"eval_cp": snap.cp, "eval_mate": snap.mate, "eval_depth": snap.depth}
             self.gui.draw(board, white_engine, black_engine, game_number, self.cfg.total_games, w_time, b_time, result_text, **ev)
 
 

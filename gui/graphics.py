@@ -95,6 +95,7 @@ class GUI:
         self.font_moves = pygame.font.SysFont("Apple Symbols", 16)
         if not self.font_moves:
             self.font_moves = pygame.font.SysFont("Arial Unicode MS", 16)
+        self.font_btn = pygame.font.SysFont("Apple Symbols", 26)
 
         self.scroll_y = 0
         self.scroll_speed = 25
@@ -111,11 +112,15 @@ class GUI:
         self._last_panel_args = None
         self._last_eval_cp = 0
         self._last_eval_mate: int | None = None
+        self._last_eval_depth: int = 0
         self._displayed_eval_cp = 0.0  # smoothly animated toward last eval
 
         # pre-build shared highlight surface
         self._highlight_surf = pygame.Surface((Layout.SQUARE_SIZE, Layout.SQUARE_SIZE), pygame.SRCALPHA)
         self._highlight_surf.fill(Palette.HIGHLIGHT)
+
+        self.flipped = False
+        self._flip_btn_rect: pygame.Rect | None = None  # set during draw, used for click detection
 
     def _load_assets(self):
         pieces = ['p', 'n', 'b', 'r', 'q', 'k']
@@ -158,8 +163,22 @@ class GUI:
                 if event.key == pygame.K_ESCAPE:
                     self.quit()
                     raise KeyboardInterrupt
+
             elif event.type == pygame.MOUSEWHEEL:
                 self.scroll_y -= event.y * self.scroll_speed
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self._flip_btn_rect is not None:
+                    # map window coords → screen (logical) coords
+                    ww, wh = self._win.get_size()
+                    scale = min(ww / self._window_w, wh / Layout.WINDOW_H)
+                    scaled_w = int(self._window_w * scale)
+                    scaled_h = int(Layout.WINDOW_H * scale)
+                    ox = (ww - scaled_w) // 2
+                    oy = (wh - scaled_h) // 2
+                    lx = (event.pos[0] - ox) / scale
+                    ly = (event.pos[1] - oy) / scale
+                    if self._flip_btn_rect.collidepoint(lx, ly):
+                        self.flipped = not self.flipped
             elif event.type == pygame.VIDEORESIZE:
                 scale = max(event.w / self._window_w, event.h / Layout.WINDOW_H)
                 scale = max(scale, self._board_container_w / self._window_w)
@@ -167,7 +186,7 @@ class GUI:
                 h = int(Layout.WINDOW_H * scale)
                 self._win = pygame.display.set_mode((w, h), pygame.RESIZABLE)
 
-    def _draw_eval_bar(self, cp: float):
+    def _draw_eval_bar(self, cp: float, depth: int = 0):
         """chess.com-style eval bar"""
         BAR_W = 26
         RADIUS = 2
@@ -224,14 +243,24 @@ class GUI:
 
         self.screen.blit(lbl_surf, (lbl_x, lbl_y))
 
-    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None, engine_arrow=None, sf_arrow=None):
+        # vertical depth label on the left of the bar — rotated so text reads bottom-to-top
+        depth_str = f"SF : {depth}"
+        depth_surf = self.font_role.render(depth_str, True, Palette.TEXT_DIM)
+        rotated = pygame.transform.rotate(depth_surf, 90)
+        # centre vertically in the bar, align right edge to left of bar with small gap
+        rx = BAR_X - rotated.get_width() - 3
+        ry = BAR_Y + BAR_H // 2 - rotated.get_height() // 2
+        self.screen.blit(rotated, (rx, ry))
+
+    def draw(self, board, white_engine, black_engine, game_num, total, w_time, b_time, result_text="", eval_cp=None, eval_mate=None, eval_depth=0, engine_arrow=None, sf_arrow=None):
         if eval_cp is not None:
             self._last_eval_cp = eval_cp
         self._last_eval_mate = eval_mate
+        self._last_eval_depth = eval_depth
         self.screen.fill(Palette.BG)
 
         if self.eval_bar:
-            self._draw_eval_bar(self._last_eval_cp)
+            self._draw_eval_bar(self._last_eval_cp, self._last_eval_depth)
 
         # board frame with rounded corners
         frame_rect = pygame.Rect(
@@ -289,13 +318,8 @@ class GUI:
         if img is None:
             return
 
-        fc, fr = chess.square_file(move.from_square), chess.square_rank(move.from_square)
-        tc, tr = chess.square_file(move.to_square), chess.square_rank(move.to_square)
-
-        sx = self._offset_x + fc * Layout.SQUARE_SIZE
-        sy = Layout.OFFSET_Y + (7 - fr) * Layout.SQUARE_SIZE
-        ex = self._offset_x + tc * Layout.SQUARE_SIZE
-        ey = Layout.OFFSET_Y + (7 - tr) * Layout.SQUARE_SIZE
+        sx, sy = self._sq_topleft(move.from_square)
+        ex, ey = self._sq_topleft(move.to_square)
 
         duration = 0.12  # seconds
         steps = max(8, int(duration * fps))
@@ -316,11 +340,12 @@ class GUI:
             pygame.draw.rect(self.screen, Palette.BORDER, frame_rect, width=2, border_radius=4)
 
             self._draw_squares_for_move(board, move)
+            self._draw_flip_button()
 
             # draw all pieces except the moving one
             for r in range(8):
                 for c in range(8):
-                    sq = chess.square(c, 7 - r)
+                    sq = self._square_at(r, c)
                     if sq == move.from_square:
                         continue
                     p = board.piece_at(sq)
@@ -335,7 +360,7 @@ class GUI:
             self.screen.blit(img, (int(cx), int(cy)))
 
             if self.eval_bar:
-                self._draw_eval_bar(self._last_eval_cp)
+                self._draw_eval_bar(self._last_eval_cp, self._last_eval_depth)
 
             if self._last_panel_args:
                 self._draw_panel(*self._last_panel_args)
@@ -348,13 +373,13 @@ class GUI:
         """draw board squares with highlight on the pending move's squares"""
         for r in range(8):
             for c in range(8):
+                sq = self._square_at(r, c)
                 is_light = (r + c) % 2 == 0
                 color = Palette.LIGHT_SQ if is_light else Palette.DARK_SQ
                 x = self._offset_x + c * Layout.SQUARE_SIZE
                 y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
 
-                sq = chess.square(c, 7 - r)
                 if sq == pending_move.from_square or sq == pending_move.to_square:
                     margin = 3
                     h_rect = pygame.Rect(x + margin, y + margin,
@@ -365,12 +390,12 @@ class GUI:
 
                 if c == 0:
                     lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
-                    lbl = self.font_role.render(str(8 - r), True, lbl_color)
+                    lbl = self.font_role.render(str(chess.square_rank(sq) + 1), True, lbl_color)
                     self.screen.blit(lbl, (x + 2, y + 2))
 
                 if r == 7:
                     lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
-                    lbl = self.font_role.render(chr(ord('a') + c), True, lbl_color)
+                    lbl = self.font_role.render(chr(ord('a') + chess.square_file(sq)), True, lbl_color)
                     self.screen.blit(lbl, (x + Layout.SQUARE_SIZE - lbl.get_width() - 2,
                                            y + Layout.SQUARE_SIZE - lbl.get_height() - 2))
 
@@ -407,6 +432,7 @@ class GUI:
 
         for r in range(8):
             for c in range(8):
+                sq = self._square_at(r, c)
                 is_light = (r + c) % 2 == 0
                 color = Palette.LIGHT_SQ if is_light else Palette.DARK_SQ
                 x = self._offset_x + c * Layout.SQUARE_SIZE
@@ -414,7 +440,6 @@ class GUI:
                 pygame.draw.rect(self.screen, color, (x, y, Layout.SQUARE_SIZE, Layout.SQUARE_SIZE))
 
                 if last_move:
-                    sq = chess.square(c, 7 - r)
                     if sq == last_move.from_square or sq == last_move.to_square:
                         margin = 3
                         h_rect = pygame.Rect(x + margin, y + margin,
@@ -423,18 +448,63 @@ class GUI:
                         h_surf.fill(Palette.HIGHLIGHT)
                         self.screen.blit(h_surf, h_rect.topleft)
 
-                # rank number on left edge of a-file squares
+                # rank number on left edge
                 if c == 0:
                     lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
-                    lbl = self.font_role.render(str(8 - r), True, lbl_color)
+                    rank_num = chess.square_rank(sq) + 1
+                    lbl = self.font_role.render(str(rank_num), True, lbl_color)
                     self.screen.blit(lbl, (x + 2, y + 2))
 
-                # file letter on bottom edge of rank-1 squares
+                # file letter on bottom edge
                 if r == 7:
                     lbl_color = Palette.DARK_SQ if is_light else Palette.LIGHT_SQ
-                    lbl = self.font_role.render(chr(ord('a') + c), True, lbl_color)
+                    file_letter = chr(ord('a') + chess.square_file(sq))
+                    lbl = self.font_role.render(file_letter, True, lbl_color)
                     self.screen.blit(lbl, (x + Layout.SQUARE_SIZE - lbl.get_width() - 2,
                                            y + Layout.SQUARE_SIZE - lbl.get_height() - 2))
+
+        self._draw_flip_button()
+
+    def _draw_flip_button(self):
+        board_right = self._offset_x + Layout.ACTUAL_BOARD_PIXELS
+        board_bottom = Layout.OFFSET_Y + Layout.ACTUAL_BOARD_PIXELS
+        gap_right = self._board_container_w  # right edge of board container
+
+        # centre in the gap to the right of the board
+        gap_centre_x = board_right + (gap_right - board_right) // 2
+
+        lbl = self.font_btn.render("⇅", True, Palette.TEXT_DIM)  # measure size
+        lbl_w, lbl_h = lbl.get_size()
+        btn_x = gap_centre_x - lbl_w // 2
+        btn_y = board_bottom - lbl_h
+        self._flip_btn_rect = pygame.Rect(btn_x, btn_y, lbl_w, lbl_h)
+
+        # hover detection — map window mouse pos to logical screen coords
+        hovered = False
+        if self._flip_btn_rect is not None:
+            ww, wh = self._win.get_size()
+            scale = min(ww / self._window_w, wh / Layout.WINDOW_H)
+            scaled_w = int(self._window_w * scale)
+            scaled_h = int(Layout.WINDOW_H * scale)
+            ox = (ww - scaled_w) // 2
+            oy = (wh - scaled_h) // 2
+            mx, my = pygame.mouse.get_pos()
+            lx = (mx - ox) / scale
+            ly = (my - oy) / scale
+            hovered = self._flip_btn_rect.collidepoint(lx, ly)
+
+        r, g, b = Palette.CLOCK_ACTIVE
+        hover_col = (min(255, r + 60), min(255, g + 60), min(255, b + 60))
+
+        if hovered:
+            btn_col = hover_col
+        elif self.flipped:
+            btn_col = Palette.CLOCK_ACTIVE
+        else:
+            btn_col = Palette.TEXT_DIM
+
+        lbl = self.font_btn.render("⇅", True, btn_col)
+        self.screen.blit(lbl, (btn_x, btn_y))
 
     def _get_piece_img(self, key):
         img = self.piece_images.get(key)
@@ -445,7 +515,7 @@ class GUI:
     def _draw_pieces(self, board):
         for r in range(8):
             for c in range(8):
-                square = chess.square(c, 7 - r)
+                square = self._square_at(r, c)
                 piece = board.piece_at(square)
                 if piece:
                     key = f"{'w' if piece.color == chess.WHITE else 'b'}{piece.symbol().lower()}"
@@ -455,13 +525,26 @@ class GUI:
                         y = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
                         self.screen.blit(img, (x, y))
 
-    def _sq_center(self, sq: chess.Square):
+    def _square_at(self, r: int, c: int) -> chess.Square:
+        """chess square for board grid position (r=0 top, c=0 left), respecting flip"""
+        if self.flipped:
+            return chess.square(7 - c, r)
+        return chess.square(c, 7 - r)
+
+    def _sq_topleft(self, sq: chess.Square) -> tuple[int, int]:
+        """pixel top-left of a chess square, respecting flip"""
+        f = chess.square_file(sq)
+        rk = chess.square_rank(sq)
+        if self.flipped:
+            c, r = 7 - f, rk
+        else:
+            c, r = f, 7 - rk
+        return self._offset_x + c * Layout.SQUARE_SIZE, Layout.OFFSET_Y + r * Layout.SQUARE_SIZE
+
+    def _sq_center(self, sq: chess.Square) -> tuple[int, int]:
         """return pixel center of a chess square"""
-        c = chess.square_file(sq)
-        r = 7 - chess.square_rank(sq)
-        cx = self._offset_x + c * Layout.SQUARE_SIZE + Layout.SQUARE_SIZE // 2
-        cy = Layout.OFFSET_Y + r * Layout.SQUARE_SIZE + Layout.SQUARE_SIZE // 2
-        return cx, cy
+        x, y = self._sq_topleft(sq)
+        return x + Layout.SQUARE_SIZE // 2, y + Layout.SQUARE_SIZE // 2
 
     @staticmethod
     def _stamp_arrow_path(surf, path, shaft_hw, head_w, head_len, color):
