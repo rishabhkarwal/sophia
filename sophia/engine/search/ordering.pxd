@@ -11,8 +11,8 @@ cdef class MoveOrdering:
     cpdef void store_killer(self, int depth, unsigned int move) noexcept
     cdef void store_history(self, unsigned int move, int depth) noexcept
     cdef void apply_history_malus(self, unsigned int move, int depth) noexcept
-    cdef void store_countermove(self, object previous_move, unsigned int current_move) noexcept
-    cpdef unsigned int get_countermove(self, object previous_move) noexcept
+    cdef void store_countermove(self, unsigned int previous_move, unsigned int current_move) noexcept
+    cpdef unsigned int get_countermove(self, unsigned int previous_move) noexcept
     cpdef int get_move_score(self, unsigned int move, unsigned int tt_move,
                              unsigned int counter_move, State state,
                              int depth, unsigned int killer_1, unsigned int killer_2) noexcept

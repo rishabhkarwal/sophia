@@ -3,7 +3,7 @@
 # cython: wraparound=False
 # cython: cdivision=True
 
-from engine.board.state cimport State
+from engine.board.state cimport State, UndoInfo
 from engine.core.bits cimport lsb, popcount
 from engine.core.move cimport (
     is_capture, is_promotion, is_en_passant, is_castling,
@@ -41,9 +41,9 @@ cdef int repetition_count(State state) except -1:
     cdef int count, i
     cdef Py_ssize_t history_len, search_limit, stop
 
-    if not state.history: return 0
+    if state.history_len == 0: return 0
 
-    history_len = len(state.history)
+    history_len = state.history_len
     search_limit = min(state.halfmove_clock, history_len)
 
     if search_limit < 4: return 0
@@ -100,12 +100,17 @@ cpdef bint has_insufficient_material(State state):
 cpdef void make_null_move(State state):
     cdef int old_ep, old_last_moved
     cdef unsigned long long old_hash
+    cdef UndoInfo* undo
 
     old_ep          = state.en_passant_square
     old_hash        = state.hash
     old_last_moved  = state.last_moved_piece_sq
 
-    state.context_stack.append((old_ep, old_hash, old_last_moved))
+    undo = &state.undo_stack[state.stack_len]
+    state.stack_len += 1
+    undo.old_ep = old_ep
+    undo.old_hash = old_hash
+    undo.old_last_moved = old_last_moved
 
     if old_ep != _NULL_VAL: state.hash ^= ZOBRIST_EN_PASSANT[old_ep % 8]
     else:                   state.hash ^= ZOBRIST_EN_PASSANT[8]
@@ -118,7 +123,16 @@ cpdef void make_null_move(State state):
 
 
 cpdef void unmake_null_move(State state):
-    old_ep, old_hash, old_last_moved = state.context_stack.pop()
+    cdef UndoInfo* undo
+    cdef int old_ep, old_last_moved
+    cdef unsigned long long old_hash
+
+    state.stack_len -= 1
+    undo = &state.undo_stack[state.stack_len]
+    old_ep = undo.old_ep
+    old_hash = undo.old_hash
+    old_last_moved = undo.old_last_moved
+
     state.en_passant_square = old_ep
     state.hash = old_hash
     state.is_white = not state.is_white
@@ -135,6 +149,7 @@ cpdef void make_move(State state, unsigned int move):
     cdef int rook, r_from, r_to
     cdef int ep_key
     cdef unsigned long long start_mask, target_mask, cap_mask
+    cdef UndoInfo* undo
 
     cdef unsigned long long old_hash     = state.hash
     cdef int old_castling                = state.castling_rights
@@ -320,20 +335,22 @@ cpdef void make_move(State state, unsigned int move):
     state.is_white = not state.is_white
     state.hash ^= ZOBRIST_BLACK_TO_MOVE
 
-    state.history.append(old_hash)
-    state.context_stack.append((
-        captured_piece,
-        old_castling,
-        old_ep,
-        old_halfmove,
-        old_hash,
-        old_mg,
-        old_eg,
-        old_phase,
-        old_w_passed,
-        old_b_passed,
-        old_last_moved,
-    ))
+    state.history[state.history_len] = old_hash
+    state.history_len += 1
+
+    undo = &state.undo_stack[state.stack_len]
+    state.stack_len += 1
+    undo.captured_piece = captured_piece
+    undo.old_castling = old_castling
+    undo.old_ep = old_ep
+    undo.old_halfmove = old_halfmove
+    undo.old_hash = old_hash
+    undo.old_mg = old_mg
+    undo.old_eg = old_eg
+    undo.old_phase = old_phase
+    undo.old_w_passed = old_w_passed
+    undo.old_b_passed = old_b_passed
+    undo.old_last_moved = old_last_moved
 
 
 cpdef void unmake_move(State state, unsigned int move):
@@ -346,13 +363,23 @@ cpdef void unmake_move(State state, unsigned int move):
     cdef int pawn
     cdef unsigned long long old_hash, old_w_passed, old_b_passed
     cdef unsigned long long start_mask, target_mask
+    cdef UndoInfo* undo
 
-    undo_info = state.context_stack.pop()
-    (captured_piece, old_castling, old_ep, old_halfmove,
-     old_hash, old_mg, old_eg, old_phase,
-     old_w_passed, old_b_passed, old_last_moved) = undo_info
+    state.stack_len -= 1
+    undo = &state.undo_stack[state.stack_len]
+    captured_piece = undo.captured_piece
+    old_castling = undo.old_castling
+    old_ep = undo.old_ep
+    old_halfmove = undo.old_halfmove
+    old_hash = undo.old_hash
+    old_mg = undo.old_mg
+    old_eg = undo.old_eg
+    old_phase = undo.old_phase
+    old_w_passed = undo.old_w_passed
+    old_b_passed = undo.old_b_passed
+    old_last_moved = undo.old_last_moved
 
-    state.history.pop()
+    state.history_len -= 1
     state.hash               = old_hash
     state.castling_rights    = old_castling
     state.en_passant_square  = old_ep

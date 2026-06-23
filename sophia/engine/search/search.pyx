@@ -562,7 +562,7 @@ cdef class SearchEngine:
 
         k1 = self.ordering.killer_moves[depth][0]
         k2 = self.ordering.killer_moves[depth][1]
-        counter = self.ordering.get_countermove(None)
+        counter = self.ordering.get_countermove(0)
 
         best_move = moves[0]
         best_value = -_INFINITY * 10
@@ -611,7 +611,7 @@ cdef class SearchEngine:
         return best_move, best_value
 
     cdef int _alpha_beta(self, State state, int depth, int alpha, int beta, int ply,
-                         object previous_move, bint allow_null, bint is_pv) except? -32768:
+                         unsigned int previous_move, bint allow_null, bint is_pv) except? -32768:
         cdef int mating_value, mated_value, static_eval, scaled_contempt
         cdef int score, TB_WIN_SCORE, reduced_depth, reduction
         cdef int rfp_margin, futility_margin, alpha_orig
@@ -815,7 +815,7 @@ cdef class SearchEngine:
             if depth >= _NMP_DEEP_DEPTH: reduction = _NMP_DEPTH
             if static_eval > beta + _NMP_EVAL_MARGIN: reduction += _NMP_EVAL_EXTRA_RED
 
-            val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, None, False, False)
+            val = -self._alpha_beta(state, depth - 1 - reduction, -beta, -beta + 1, ply + 1, 0, False, False)
             unmake_null_move(state)
 
             if val >= beta:

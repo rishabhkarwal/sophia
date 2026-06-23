@@ -104,27 +104,25 @@ cdef class MoveOrdering:
         bonus  = depth * depth
         self.history_table[start][target] -= bonus - self.history_table[start][target] * bonus // _HISTORY_MAX
 
-    cdef void store_countermove(self, object previous_move, unsigned int current_move) noexcept:
-        cdef int prev_from, prev_to, previous_move_int
+    cdef void store_countermove(self, unsigned int previous_move, unsigned int current_move) noexcept:
+        cdef int prev_from, prev_to
 
-        if previous_move is None: return
+        if previous_move == 0: return
 
         if is_capture(current_move) or is_en_passant(current_move) or is_promotion(current_move): return
 
-        previous_move_int = <int>previous_move
-        prev_from = move_source(<unsigned int>previous_move_int)
-        prev_to   = move_target(<unsigned int>previous_move_int)
+        prev_from = move_source(previous_move)
+        prev_to   = move_target(previous_move)
 
         self.countermoves[prev_from][prev_to] = current_move
 
-    cpdef unsigned int get_countermove(self, object previous_move) noexcept:
-        cdef int prev_from, prev_to, previous_move_int
+    cpdef unsigned int get_countermove(self, unsigned int previous_move) noexcept:
+        cdef int prev_from, prev_to
 
-        if previous_move is None: return 0
-        previous_move_int = <int>previous_move
+        if previous_move == 0: return 0
 
-        prev_from = move_source(<unsigned int>previous_move_int)
-        prev_to   = move_target(<unsigned int>previous_move_int)
+        prev_from = move_source(previous_move)
+        prev_to   = move_target(previous_move)
 
         return self.countermoves[prev_from][prev_to]
 

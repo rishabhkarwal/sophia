@@ -4,6 +4,7 @@
 # cython: cdivision=True
 
 from libc.string cimport memcpy, memset
+from libc.stdlib cimport malloc, free
 
 from engine.core.constants import NULL as _NULL
 
@@ -14,6 +15,26 @@ cdef class State:
         # evil memory trick basically
         memset(self.board,        -1 & 0xFF,   sizeof(self.board)) # fill 0xFF = -1 as signed byte
         memset(self.piece_counts, 0,           sizeof(self.piece_counts))
+
+        self.stack_capacity = STATE_STACK_CAPACITY
+        self.stack_len = 0
+        self.history_len = 0
+        self.undo_stack = <UndoInfo*>malloc(self.stack_capacity * sizeof(UndoInfo))
+        self.history = <unsigned long long*>malloc(self.stack_capacity * sizeof(unsigned long long))
+        if self.undo_stack == NULL or self.history == NULL:
+            if self.undo_stack != NULL: free(self.undo_stack)
+            if self.history != NULL: free(self.history)
+            self.undo_stack = NULL
+            self.history = NULL
+            raise MemoryError()
+
+    def __dealloc__(self):
+        if self.undo_stack != NULL:
+            free(self.undo_stack)
+            self.undo_stack = NULL
+        if self.history != NULL:
+            free(self.history)
+            self.history = NULL
 
     def __init__(self,
                  bitboards=None,
@@ -26,6 +47,7 @@ cdef class State:
                  int fullmove_number=1,
                  history=None):
         cdef int i
+        cdef Py_ssize_t n
 
         if bitboards is not None:
             for i in range(16):
@@ -53,8 +75,15 @@ cdef class State:
         self.black_passed_pawns  = 0
         self.last_moved_piece_sq = _NULL
 
-        self.history       = list(history) if history is not None else []
-        self.context_stack = []
+        self.stack_len = 0
+        self.history_len = 0
+        if history is not None:
+            n = len(history)
+            if n > self.stack_capacity:
+                raise OverflowError("state history capacity exceeded")
+            for i in range(n):
+                self.history[i] = <unsigned long long>history[i]
+            self.history_len = n
 
     cpdef State clone(self):
         """fast explicit clone"""
@@ -77,8 +106,12 @@ cdef class State:
         s.black_passed_pawns  = self.black_passed_pawns
         s.last_moved_piece_sq = self.last_moved_piece_sq
 
-        s.history       = list(self.history)
-        s.context_stack = list(self.context_stack)
+        s.stack_len = self.stack_len
+        s.history_len = self.history_len
+        if self.stack_len:
+            memcpy(s.undo_stack, self.undo_stack, self.stack_len * sizeof(UndoInfo))
+        if self.history_len:
+            memcpy(s.history, self.history, self.history_len * sizeof(unsigned long long))
 
         return s
 

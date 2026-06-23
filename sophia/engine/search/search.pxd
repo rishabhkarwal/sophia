@@ -70,5 +70,5 @@ cdef class SearchEngine:
     cdef public int dbg_syzygy_hits
 
     cdef int _alpha_beta(self, State state, int depth, int alpha, int beta, int ply,
-                         object previous_move, bint allow_null, bint is_pv) except? -32768
+                         unsigned int previous_move, bint allow_null, bint is_pv) except? -32768
     cdef int _quiescence(self, State state, int alpha, int beta, int ply) except? -32768
