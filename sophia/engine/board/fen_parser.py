@@ -10,17 +10,19 @@ from engine.core.zobrist import compute_hash
 
 def load_from_fen(fen_string: str = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') -> State:
     fields = fen_string.split(' ')
+    while len(fields) < 6:
+        fields.append('0' if len(fields) == 4 else '1')
 
     bitboards, board, piece_counts = _parse_pieces(fields[0])
-
+    
     state = State(
         bitboards=bitboards,
         board=board,
         is_white=_parse_active_colour(fields[1]),
         castling_rights=_parse_castling_rights(fields[2]),
         en_passant_square=_parse_en_passant(fields[3]),
-        halfmove_clock=int(fields[4]) if len(fields) > 4 else 0,
-        fullmove_number=int(fields[5]) if len(fields) > 5 else 1,
+        halfmove_clock=int(fields[4]),
+        fullmove_number=int(fields[5]),
         history=[],
         piece_counts=piece_counts
     )

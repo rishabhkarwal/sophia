@@ -49,6 +49,33 @@ cdef bint is_square_attacked(State state, int sq, bint by_white) noexcept:
     return False
 
 
+cdef unsigned long long attackers_to_square(State state, int sq, bint colour) noexcept:
+    cdef unsigned long long attackers = 0
+    cdef unsigned long long all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
+    cdef unsigned long long pawn_attacks, pa, na, ka
+    cdef int P, N, B, R, Q, K
+
+    if colour:
+        P = _WP; N = _WN; B = _WB; R = _WR; Q = _WQ; K = _WK
+        pawn_attacks = BLACK_PAWN_ATTACKS[sq]
+    else:
+        P = _BP; N = _BN; B = _BB; R = _BR; Q = _BQ; K = _BK
+        pawn_attacks = WHITE_PAWN_ATTACKS[sq]
+
+    pa = pawn_attacks & state.bitboards[P]
+    if pa: attackers |= pa
+
+    na = KNIGHT_ATTACKS[sq] & state.bitboards[N]
+    if na: attackers |= na
+
+    ka = KING_ATTACKS[sq] & state.bitboards[K]
+    if ka: attackers |= ka
+
+    attackers |= bishop_attacks(sq, all_pieces) & (state.bitboards[B] | state.bitboards[Q])
+    attackers |= rook_attacks(sq, all_pieces)   & (state.bitboards[R] | state.bitboards[Q])
+    return attackers
+
+
 cpdef bint is_in_check(State state, bint colour) noexcept:
     cdef int king_idx, king_sq
     cdef unsigned long long king_bb
@@ -98,26 +125,4 @@ cpdef bint is_legal(State state, unsigned int move):
 
 def get_attackers(State state, int sq, bint colour):
     """return bitboard of all pieces of 'colour' that attack 'sq'"""
-    cdef unsigned long long attackers = 0
-    cdef unsigned long long all_pieces = state.bitboards[_WHITE] | state.bitboards[_BLACK]
-    cdef int P, N, B, R, Q, K
-
-    if colour: # WHITE
-        P = _WP; N = _WN; B = _WB; R = _WR; Q = _WQ; K = _WK
-        pawn_attacks = BLACK_PAWN_ATTACKS[sq]
-    else:      # BLACK
-        P = _BP; N = _BN; B = _BB; R = _BR; Q = _BQ; K = _BK
-        pawn_attacks = WHITE_PAWN_ATTACKS[sq]
-
-    pa = pawn_attacks & state.bitboards[P]
-    if pa: attackers |= pa
-
-    na = KNIGHT_ATTACKS[sq] & state.bitboards[N]
-    if na: attackers |= na
-
-    ka = KING_ATTACKS[sq] & state.bitboards[K]
-    if ka: attackers |= ka
-
-    attackers |= bishop_attacks(sq, all_pieces) & (state.bitboards[B] | state.bitboards[Q])
-    attackers |= rook_attacks(sq, all_pieces)   & (state.bitboards[R] | state.bitboards[Q])
-    return attackers
+    return attackers_to_square(state, sq, colour)
