@@ -14,10 +14,6 @@ cdef class SearchEngine:
     cdef public double hard_time_limit
     cdef public double soft_time_limit
     cdef public int   check_interval
-    cdef public int   aspiration_current
-    cdef public int   aspiration_stability_count
-    cdef public int   aspiration_min
-    cdef public int   aspiration_max
     cdef public int   time_limit
     cdef public int   root_colour
 

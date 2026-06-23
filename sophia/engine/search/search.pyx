@@ -28,9 +28,7 @@ from engine.core.parameters import (
     REPETITION_PENALTY_SLIGHT, SLIGHTLY_BETTER_THRESHOLD,
     CLEARLY_WINNING_THRESHOLD, CLEARLY_LOSING_THRESHOLD,
     FIFTY_MOVE_CONTEMPT_BASE, FIFTY_MOVE_SCALE_START,
-    ASPIRATION_MIN, ASPIRATION_MAX, ASPIRATION_INIT_SCALE,
-    ASPIRATION_WIDEN_FACTOR, ASPIRATION_STABILITY_COUNT,
-    ASPIRATION_TIGHTEN_SCALE, ASPIRATION_MIN_DEPTH,
+    ASPIRATION_DELTA, ASPIRATION_WIDEN_FACTOR, ASPIRATION_MIN_DEPTH,
     TIME_HARD_LIMIT_FACTOR, TIME_HARD_LIMIT_OFFSET,
     TIME_CHECK_SWITCH, TIME_CHECK_TIGHT,
     TIME_USAGE_LONG, TIME_USAGE_SHORT, TIME_USAGE_TC_THRESHOLD,
@@ -46,7 +44,10 @@ from engine.core.parameters import (
 from engine.core.move import move_to_uci
 from engine.core.move cimport is_capture, is_promotion, is_en_passant
 from engine.core.bits cimport popcount
-from engine.moves.generator cimport MoveList, generate_pseudo_legal_move_list
+from engine.moves.generator cimport (
+    MoveList, generate_pseudo_legal_move_list, generate_check_evasion_move_list,
+    is_pseudo_legal_move,
+)
 from engine.moves.generator import generate_pseudo_legal_moves
 from engine.board.move_exec cimport (
     make_move, unmake_move,
@@ -121,7 +122,8 @@ cdef int _TIME_CHK_SWITCH   = TIME_CHECK_SWITCH
 cdef int _TIME_CHK_TIGHT    = TIME_CHECK_TIGHT
 cdef int _MATE_MARGIN       = MATE_SCORE_MARGIN
 cdef int _ASP_MIN_DEPTH     = ASPIRATION_MIN_DEPTH
-cdef int _ASP_STAB_COUNT    = ASPIRATION_STABILITY_COUNT
+cdef int _ASP_DELTA         = ASPIRATION_DELTA
+cdef int _ASP_WIDEN         = ASPIRATION_WIDEN_FACTOR
 cdef int _TT_SCORE_BOUND    = INFINITY - 2 * MATE_SCORE_MARGIN
 
 _RAZOR_MARGIN_LIST   = list(RAZOR_MARGIN)
@@ -144,6 +146,28 @@ cdef inline int _score_from_tt(int score, int ply) noexcept:
     return score
 
 
+cdef inline bint _move_was_tried(unsigned int* tried_moves, int tried_count,
+                                 unsigned int move) noexcept:
+    cdef int i
+    for i in range(tried_count):
+        if tried_moves[i] == move:
+            return True
+    return False
+
+
+cdef inline bint _move_in_list(MoveList* moves, unsigned int move) noexcept:
+    cdef int i
+    for i in range(moves.count):
+        if moves.moves[i] == move:
+            return True
+    return False
+
+
+cdef bint _is_pseudo_search_move(State state, unsigned int move) noexcept:
+    if move == 0: return False
+    return is_pseudo_legal_move(state, move)
+
+
 class TimeoutError(Exception):
     """raised when search runs out of time"""
     pass
@@ -164,12 +188,6 @@ cdef class SearchEngine:
         self.start_time = 0.0
         self.limit_start_time = 0.0
         self.root_colour = WHITE
-
-        # dynamic aspiration windows
-        self.aspiration_min = ASPIRATION_MIN
-        self.aspiration_max = ASPIRATION_MAX
-        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * ASPIRATION_INIT_SCALE)
-        self.aspiration_stability_count = 0
 
         self.opponent_time_ms = INFINITE_TIME
         self.nodes_limit = None
@@ -347,9 +365,6 @@ cdef class SearchEngine:
 
         self.depth_reached = 0
 
-        self.aspiration_current = int((self.aspiration_min + self.aspiration_max) * ASPIRATION_INIT_SCALE)
-        self.aspiration_stability_count = 0
-
         moves = generate_pseudo_legal_moves(state)
         legal_moves = []
         for move in moves:
@@ -384,41 +399,29 @@ cdef class SearchEngine:
 
                 alpha = -_INFINITY
                 beta = _INFINITY
+                asp_delta = _ASP_DELTA
 
                 if current_depth > _ASP_MIN_DEPTH:
-                    alpha = current_score - self.aspiration_current
-                    beta = current_score + self.aspiration_current
+                    alpha = current_score - asp_delta
+                    beta  = current_score + asp_delta
 
-                    best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
-
-                    if score <= alpha or score >= beta:
-                        failed_low = score <= alpha
-                        failed_high = score >= beta
-                        if _const.DEBUG:
-                            if failed_low and failed_high: self.dbg_asp_fail_both += 1
-                            elif failed_low: self.dbg_asp_fail_low += 1
-                            else: self.dbg_asp_fail_high += 1
-                        send_info_string(f'aspiration failed: {self.aspiration_current}')
-                        self.aspiration_current = min(self.aspiration_current * ASPIRATION_WIDEN_FACTOR, self.aspiration_max)
-                        self.aspiration_stability_count = 0
-
-                        if failed_low: alpha = current_score - self.aspiration_current
-                        if failed_high: beta = current_score + self.aspiration_current
-
+                    while True:
                         best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
 
-                        if score <= alpha or score >= beta:
-                            send_info_string(f'aspiration failed again: {self.aspiration_current}')
-                            self.aspiration_stability_count = 0
-                            alpha = -_INFINITY
-                            beta = _INFINITY
-                            best_move, score = self._search_root(state, current_depth, moves, alpha, beta)
-                    else:
-                        self.aspiration_stability_count += 1
-                        if self.aspiration_stability_count >= _ASP_STAB_COUNT:
-                            self.aspiration_current = max(self.aspiration_min, int(self.aspiration_current * ASPIRATION_TIGHTEN_SCALE))
-                            self.aspiration_stability_count = 0
-                            if self.aspiration_current > self.aspiration_min: send_info_string(f'aspiration tightened: {self.aspiration_current}')
+                        if alpha == -_INFINITY and beta == _INFINITY:
+                            break
+                        elif score <= alpha:
+                            if _const.DEBUG: self.dbg_asp_fail_low += 1
+                            send_info_string(f'aspiration fail-low: delta = {asp_delta}')
+                            asp_delta *= _ASP_WIDEN
+                            alpha = -_INFINITY if asp_delta >= _INFINITY else current_score - asp_delta
+                        elif score >= beta:
+                            if _const.DEBUG: self.dbg_asp_fail_high += 1
+                            send_info_string(f'aspiration fail-high: delta = {asp_delta}')
+                            asp_delta *= _ASP_WIDEN
+                            beta = _INFINITY if asp_delta >= _INFINITY else current_score + asp_delta
+                        else:
+                            break
                 else:
                     best_move, score = self._search_root(state, current_depth, moves, -_INFINITY, _INFINITY)
 
@@ -612,17 +615,18 @@ cdef class SearchEngine:
         cdef int mating_value, mated_value, static_eval, scaled_contempt
         cdef int score, TB_WIN_SCORE, reduced_depth, reduction
         cdef int rfp_margin, futility_margin, alpha_orig
-        cdef int legal_moves_count, i, old_phase, child_depth
+        cdef int legal_moves_count, i, j, old_phase, child_depth
         cdef int lmp_threshold, best_value, value, val, flag
-        cdef int repeat_count
-        cdef unsigned int move
+        cdef int repeat_count, stage, stage_limit, tried_count
+        cdef unsigned int move, candidate
         cdef bint in_check, gives_check, is_interesting, do_futility
-        cdef bint needs_full, time_pressure_mode, see_ok
+        cdef bint needs_full, time_pressure_mode, see_ok, use_staged
         cdef unsigned int tt_move, k1, k2, counter
         cdef object best_move
-        cdef MoveList moves
+        cdef MoveList moves, bad_moves
         cdef int scores[256]
         cdef signed char see_cache[256]
+        cdef unsigned int tried_moves[256]
         cdef unsigned int quiet_moves_tried[256]
         cdef int quiet_moves_count
         cdef unsigned int q
@@ -827,8 +831,6 @@ cdef class SearchEngine:
                     do_futility = True
 
         alpha_orig = alpha
-        generate_pseudo_legal_move_list(state, &moves, False)
-
         tt_move = _tt_move_raw if (_tt_hit and _tt_move_raw != 0) else 0
         k1 = self.ordering.killer_moves[depth][0]
         k2 = self.ordering.killer_moves[depth][1]
@@ -841,118 +843,178 @@ cdef class SearchEngine:
 
         time_pressure_mode = self.opponent_time_ms < _TIME_PRESS_THRESH
 
-        score_move_list(&moves, scores, see_cache, state, self.ordering, tt_move, counter, depth, k1, k2)
+        use_staged = not in_check
+        tried_count = 0
+        bad_moves.count = 0
+        stage = 0
+        stage_limit = 5 if use_staged else 2
 
-        for i in range(moves.count):
-            pick_next_move_list(&moves, scores, see_cache, i)
-            move = moves.moves[i]
+        while stage < stage_limit:
+            moves.count = 0
 
-            see_ok = True
-            if is_capture(move) and depth <= _SEE_CAP:
-                see_ok = see_cache[i] == 1
+            if stage == 0:
+                if tt_move != 0 and _is_pseudo_search_move(state, tt_move):
+                    moves.moves[0] = tt_move
+                    moves.count = 1
+            elif not use_staged:
+                generate_check_evasion_move_list(state, &moves)
+            elif stage == 1:
+                generate_pseudo_legal_move_list(state, &moves, True)
+            elif stage == 2:
+                for j in range(3):
+                    if j == 0:
+                        candidate = counter
+                    elif j == 1:
+                        candidate = k1
+                    else:
+                        candidate = k2
 
-            old_phase = state.phase
-            make_move(state, move)
+                    if candidate == 0: continue
+                    if _move_was_tried(tried_moves, tried_count, candidate): continue
+                    if _move_in_list(&moves, candidate): continue
+                    if is_capture(candidate) or is_en_passant(candidate) or is_promotion(candidate): continue
+                    if not _is_pseudo_search_move(state, candidate): continue
 
-            if is_in_check(state, not state.is_white):
-                unmake_move(state, move)
-                continue
-
-            legal_moves_count += 1
-
-            gives_check = is_in_check(state, state.is_white)
-
-            is_interesting = is_capture(move) or is_en_passant(move) or is_promotion(move)
-
-            if gives_check and time_pressure_mode:
-                is_interesting = True
-
-            if not is_interesting:
-                if quiet_moves_count < 256:
-                    quiet_moves_tried[quiet_moves_count] = move
-                    quiet_moves_count += 1
-
-            child_depth = depth - 1
-            if old_phase > 0 and state.phase == 0:
-                child_depth += _PHASE_EXT
-
-            if do_futility and not is_interesting and not gives_check:
-                if _const.DEBUG: self.dbg_futility_skips += 1
-                unmake_move(state, move)
-                continue
-
-            # late move pruning
-            if not is_pv and not in_check and not is_interesting and depth <= _LMP_CAP:
-                lmp_threshold = _LMP_BASE + depth * depth * _LMP_MULT
-                if legal_moves_count > lmp_threshold:
-                    if _const.DEBUG: self.dbg_lmp_skips += 1
-                    unmake_move(state, move)
-                    continue
-
-            # SEE pruning
-            if is_capture(move) and depth <= _SEE_CAP and not gives_check:
-                if _const.DEBUG: self.dbg_see_tests += 1
-                if not see_ok:
-                    if _const.DEBUG: self.dbg_see_prunes += 1
-                    unmake_move(state, move)
-                    continue
-
-            needs_full = True
-
-            # late move reduction
-            if depth >= _LMR_MIN_DEPTH and legal_moves_count >= _LMR_THRESH and not is_interesting and not in_check and not gives_check and allow_null:
-                if _const.DEBUG: self.dbg_lmr_reductions += 1
-                reduction = _LMR_BASE
-                if legal_moves_count >= _LMR_HEAVY_THRESH: reduction = _LMR_HEAVY_RED
-                if not is_pv: reduction += _LMR_NON_PV_RED
-
-                reduced_depth = max(1, depth - 1 - reduction)
-                val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, move, True, False)
-                if val <= alpha:
-                    needs_full = False
-                elif _const.DEBUG:
-                    self.dbg_lmr_researches += 1
-
-            if needs_full:
-                if legal_moves_count == 1:
-                    value = -self._alpha_beta(state, child_depth, -beta, -alpha, ply + 1, move, True, is_pv)
-                else:
-                    value = -self._alpha_beta(state, child_depth, -(alpha + 1), -alpha, ply + 1, move, True, False)
-                    if alpha < value < beta:
-                        if _const.DEBUG: self.dbg_pvs_researches += 1
-                        value = -self._alpha_beta(state, child_depth, -beta, -alpha, ply + 1, move, True, is_pv)
+                    moves.moves[moves.count] = candidate
+                    moves.count += 1
+            elif stage == 3:
+                generate_pseudo_legal_move_list(state, &moves, False)
             else:
-                value = val
+                for j in range(bad_moves.count):
+                    moves.moves[j] = bad_moves.moves[j]
+                moves.count = bad_moves.count
 
-            unmake_move(state, move)
+            if moves.count != 0:
+                score_move_list(&moves, scores, see_cache, state, self.ordering, tt_move, counter, depth, k1, k2)
 
-            if value >= beta:
-                if _const.DEBUG:
-                    self.dbg_beta_cutoff_idx.append(legal_moves_count - 1)
-                    is_cap = is_capture(move)
-                    is_tt  = (tt_move != 0 and move == tt_move)
-                    is_kil = (move == k1 or move == k2)
-                    if is_tt:        self.dbg_cutoff_by_tt     += 1
-                    elif is_kil:     self.dbg_cutoff_by_killer += 1
-                    elif is_cap:     self.dbg_cutoff_by_cap    += 1
-                    else:            self.dbg_cutoff_by_quiet  += 1
-                self.tt.store(<unsigned long long>state.hash, <short>depth,
-                              _score_to_tt(beta, ply),
-                              <unsigned char>_FLAG_LB, move)
-                self.ordering.store_killer(depth, move)
-                self.ordering.store_history(move, depth)
-                self.ordering.store_countermove(previous_move, move)
-                for i in range(quiet_moves_count):
-                    q = quiet_moves_tried[i]
-                    if q != move:
-                        self.ordering.apply_history_malus(q, depth)
-                return beta
+            for i in range(moves.count):
+                pick_next_move_list(&moves, scores, see_cache, i)
+                move = moves.moves[i]
 
-            if value > best_value:
-                best_value = value
-                best_move = move
+                if _move_was_tried(tried_moves, tried_count, move):
+                    continue
 
-            if value > alpha: alpha = value
+                if use_staged:
+                    if stage == 1 and see_cache[i] != 1:
+                        if not _move_in_list(&bad_moves, move):
+                            bad_moves.moves[bad_moves.count] = move
+                            bad_moves.count += 1
+                        continue
+                    if stage == 3 and (is_capture(move) or is_en_passant(move)):
+                        continue
+
+                if tried_count < 256:
+                    tried_moves[tried_count] = move
+                    tried_count += 1
+
+                see_ok = True
+                if is_capture(move) and depth <= _SEE_CAP:
+                    see_ok = see_cache[i] == 1
+
+                old_phase = state.phase
+                make_move(state, move)
+
+                if is_in_check(state, not state.is_white):
+                    unmake_move(state, move)
+                    continue
+
+                legal_moves_count += 1
+
+                gives_check = is_in_check(state, state.is_white)
+
+                is_interesting = is_capture(move) or is_en_passant(move) or is_promotion(move)
+
+                if gives_check and time_pressure_mode:
+                    is_interesting = True
+
+                if not is_interesting:
+                    if quiet_moves_count < 256:
+                        quiet_moves_tried[quiet_moves_count] = move
+                        quiet_moves_count += 1
+
+                child_depth = depth - 1
+                if old_phase > 0 and state.phase == 0:
+                    child_depth += _PHASE_EXT
+
+                if do_futility and not is_interesting and not gives_check:
+                    if _const.DEBUG: self.dbg_futility_skips += 1
+                    unmake_move(state, move)
+                    continue
+
+                # late move pruning
+                if not is_pv and not in_check and not is_interesting and depth <= _LMP_CAP:
+                    lmp_threshold = _LMP_BASE + depth * depth * _LMP_MULT
+                    if legal_moves_count > lmp_threshold:
+                        if _const.DEBUG: self.dbg_lmp_skips += 1
+                        unmake_move(state, move)
+                        continue
+
+                # SEE pruning
+                if is_capture(move) and depth <= _SEE_CAP and not gives_check:
+                    if _const.DEBUG: self.dbg_see_tests += 1
+                    if not see_ok:
+                        if _const.DEBUG: self.dbg_see_prunes += 1
+                        unmake_move(state, move)
+                        continue
+
+                needs_full = True
+
+                # late move reduction
+                if depth >= _LMR_MIN_DEPTH and legal_moves_count >= _LMR_THRESH and not is_interesting and not in_check and not gives_check and allow_null:
+                    if _const.DEBUG: self.dbg_lmr_reductions += 1
+                    reduction = _LMR_BASE
+                    if legal_moves_count >= _LMR_HEAVY_THRESH: reduction = _LMR_HEAVY_RED
+                    if not is_pv: reduction += _LMR_NON_PV_RED
+
+                    reduced_depth = max(1, depth - 1 - reduction)
+                    val = -self._alpha_beta(state, reduced_depth, -(alpha+1), -alpha, ply + 1, move, True, False)
+                    if val <= alpha:
+                        needs_full = False
+                    elif _const.DEBUG:
+                        self.dbg_lmr_researches += 1
+
+                if needs_full:
+                    if legal_moves_count == 1:
+                        value = -self._alpha_beta(state, child_depth, -beta, -alpha, ply + 1, move, True, is_pv)
+                    else:
+                        value = -self._alpha_beta(state, child_depth, -(alpha + 1), -alpha, ply + 1, move, True, False)
+                        if alpha < value < beta:
+                            if _const.DEBUG: self.dbg_pvs_researches += 1
+                            value = -self._alpha_beta(state, child_depth, -beta, -alpha, ply + 1, move, True, is_pv)
+                else:
+                    value = val
+
+                unmake_move(state, move)
+
+                if value >= beta:
+                    if _const.DEBUG:
+                        self.dbg_beta_cutoff_idx.append(legal_moves_count - 1)
+                        is_cap = is_capture(move)
+                        is_tt  = (tt_move != 0 and move == tt_move)
+                        is_kil = (move == k1 or move == k2)
+                        if is_tt:        self.dbg_cutoff_by_tt     += 1
+                        elif is_kil:     self.dbg_cutoff_by_killer += 1
+                        elif is_cap:     self.dbg_cutoff_by_cap    += 1
+                        else:            self.dbg_cutoff_by_quiet  += 1
+                    self.tt.store(<unsigned long long>state.hash, <short>depth,
+                                  _score_to_tt(beta, ply),
+                                  <unsigned char>_FLAG_LB, move)
+                    self.ordering.store_killer(depth, move)
+                    self.ordering.store_history(move, depth)
+                    self.ordering.store_countermove(previous_move, move)
+                    for i in range(quiet_moves_count):
+                        q = quiet_moves_tried[i]
+                        if q != move:
+                            self.ordering.apply_history_malus(q, depth)
+                    return beta
+
+                if value > best_value:
+                    best_value = value
+                    best_move = move
+
+                if value > alpha: alpha = value
+
+            stage += 1
 
         if legal_moves_count == 0:
             if in_check: return -_INFINITY + ply
@@ -1029,7 +1091,7 @@ cdef class SearchEngine:
                 alpha = evaluation
 
         if in_check:
-            generate_pseudo_legal_move_list(state, &moves, False)
+            generate_check_evasion_move_list(state, &moves)
         else:
             generate_pseudo_legal_move_list(state, &moves, True)
 
