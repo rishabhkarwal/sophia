@@ -19,6 +19,7 @@ PYX_FILES = [
     "engine/moves/precomputed.pyx",
     "engine/moves/legality.pyx",
     "engine/moves/generator.pyx",
+    "engine/uci/perft.pyx",
     "engine/search/transposition.pyx",
     "engine/search/see.pyx",
     "engine/search/evaluation.pyx",

@@ -36,38 +36,21 @@ def evaluate(state):
     send_command(f"EG Score: {state.eg_score :,} (Weight: {eg_phase / MAX_PHASE * 100 :.1f}%)")
 
 
+from engine.uci.perft import run_perft_divide
+
 def perft(state, depth):
-    def _perft_recursive(state, depth):
-        if depth == 0: return 1
-        
-        nodes = 0
-        moves = generate_pseudo_legal_moves(state)
-        
-        for move in moves:
-            make_move(state, move)
-            if not is_in_check(state, not state.is_white):
-                nodes += _perft_recursive(state, depth - 1)
-            unmake_move(state, move)
-            
-        return nodes
-    
     t_start = time.time()
+
+    rows = run_perft_divide(state, depth)
     total_nodes = 0
-    
-    moves = get_legal_moves(state)
-    
-    for move in moves:
-        make_move(state, move)
-        nodes = _perft_recursive(state, depth - 1)
-        unmake_move(state, move)
-        
+    for move, nodes in rows:
         total_nodes += nodes
         send_command(f"{move_to_uci(move)}: {nodes :,}")
-        
+
     t_end = time.time()
     dt = t_end - t_start
     nps = int(total_nodes / dt) if dt > 0 else 0
-    
+
     send_command(f"\nNodes: {total_nodes :,}")
     send_command(f"Time: {dt :.3f} s")
     send_command(f"NPS: {nps :,}\n")

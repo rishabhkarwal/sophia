@@ -120,55 +120,60 @@ if __name__ == '__main__':
 
     run(FEN, TIME_LIMIT, engine_choice)
 
-"""pypy3 profiler.py sophia"""
+"""python profiler.py sophia"""
 
 """
 Position: r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1
 Time: 120s
 
-info depth 1 seldepth 23 score cp -13 nodes 7571 nps 2958 time 2558 hashfull 0 tbhits 0 pv d5e6
-info depth 2 seldepth 23 score cp -13 nodes 15546 nps 4119 time 3774 hashfull 0 tbhits 0 pv d5e6 e7e6
-info depth 3 seldepth 23 score cp -21 nodes 22486 nps 4751 time 4731 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3
-info depth 4 seldepth 31 score cp -21 nodes 53317 nps 6187 time 8617 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 h3g2
-info string aspiration tightened: 50
-info depth 5 seldepth 31 score cp -21 nodes 114304 nps 7748 time 14751 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 h3g2 f3g2
-info depth 6 seldepth 31 score cp -21 nodes 191655 nps 8812 time 21747 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 h3g2 f3g2 e6d5
-info depth 7 seldepth 31 score cp -21 nodes 261233 nps 9261 time 28206 hashfull 1 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e4d5 h3g2 f3g2
-info string aspiration tightened: 50
-info depth 8 seldepth 33 score cp -21 nodes 413892 nps 10907 time 37946 hashfull 4 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e4d5 h3g2 f3g2 b6d5
-info depth 9 seldepth 33 score cp -70 nodes 685335 nps 12795 time 53560 hashfull 7 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e5g6 f7g6 c3f6 g7f6 f3f6
-info string aspiration failed: 50
-info depth 10 seldepth 33 score cp -120 nodes 1249922 nps 15651 time 79859 hashfull 19 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e5g4 d5e4 g4f6 e7f6
+info depth 1 seldepth 18 score cp 112 nodes 2392 nps 472063 time 5 hashfull 0 tbhits 0 pv d5e6
+info depth 2 seldepth 18 score cp 112 nodes 5014 nps 579233 time 8 hashfull 0 tbhits 0 pv d5e6 d7e6
+info string aspiration fail-low: delta = 25
+info depth 3 seldepth 18 score cp 81 nodes 9196 nps 637892 time 14 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6
+info depth 4 seldepth 18 score cp 81 nodes 12104 nps 630022 time 19 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6 h3g2
+info string aspiration fail-low: delta = 25
+info string aspiration fail-low: delta = 75
+info depth 5 seldepth 20 score cp 0 nodes 31188 nps 653041 time 47 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e4d5
+info depth 6 seldepth 22 score cp 0 nodes 50460 nps 690446 time 73 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e4d5 h3g2
+info string aspiration fail-low: delta = 25
+info depth 7 seldepth 22 score cp -28 nodes 117172 nps 735413 time 159 hashfull 0 tbhits 0 pv e2a6 e6d5 e1g1 h3g2 g1g2 b4c3 d2c3
+info depth 8 seldepth 22 score cp -29 nodes 199835 nps 749447 time 266 hashfull 0 tbhits 0 pv e2a6 e6d5 e1g1 b4c3 d2c3 f6e4 e5c6 e4c3
+info string aspiration fail-low: delta = 25
+info depth 9 seldepth 26 score cp -69 nodes 489957 nps 756609 time 647 hashfull 0 tbhits 0 pv e2a6 e6d5 e1g1 h3g2 f3g2 e7e5 c3b5 d5d4 d2b4
+info depth 10 seldepth 27 score cp -82 nodes 926345 nps 761550 time 1216 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e1g1 d5e4 f3g3 h3g2 g3g2 d7d5
+info depth 11 seldepth 29 score cp -106 nodes 1631127 nps 769390 time 2120 hashfull 0 tbhits 0 pv e2a6 b4c3 d2c3 e6d5 e1g1 d5e4 f3e2 h3g2 g1g2 f6d5 e2e4
+info depth 12 seldepth 31 score cp -91 nodes 3170668 nps 776089 time 4085 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6 h3g2 f3g2 e6e5 f2f4 e5a5 c3b5 e8d8 e4e5 a5a6
+info depth 13 seldepth 33 score cp -91 nodes 5779054 nps 796035 time 7259 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6 h3g2 f3g2 e6e5 f2f4 e5a5 c3b5 e8d8 e4e5 a5a6 e5f6
+info string aspiration fail-low: delta = 25
+info depth 14 seldepth 33 score cp -127 nodes 17903784 nps 812067 time 22047 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6 h3g2 f3g2 e6e5 f2f4 e5a5 c3b5 e8d8 e4e5 f6d5 g2g5 d8e8
+info string aspiration fail-high: delta = 25
+info depth 15 seldepth 36 score cp -102 nodes 30311151 nps 824773 time 36750 hashfull 0 tbhits 0 pv d5e6 e7e6 e2a6 h3g2 f3g2 e6e5 e1f1
+info depth 16 seldepth 36 score cp -78 nodes 59300634 nps 832396 time 71240 hashfull 0 tbhits 0 pv d5e6
 
 ====================================================================================================
 
 Engine: Sophia
 
-Nodes: 2,134,016
-NPS:   17,735
-Time:  120.33s
-Depth: 10
-Move:  e2a6
+Nodes: 100,744,192
+NPS:   836,014
+Time:  120.51s
+Depth: 16
+Move:  d5e6
 
 ====================================================================================================
-Total Function Calls: 369,971,004
+Total Function Calls: 33,852
 ----------------------------------------------------------------------------------------------------
     n-calls       tot-time   per-call   cum-time   function
 ----------------------------------------------------------------------------------------------------
-    1842319        21.412     0.000      33.718    search/evaluation.py:327(evaluate)
-    5561083        20.021     0.000      20.738    board/move_exec.py:103(make_move)
-    8032266        9.207      0.000      9.502     moves/legality.py:67(is_in_check)
- 1882438/86098     8.958      0.000     103.402    search/search.py:526(_quiescence)
-    5561083        8.361      0.000      8.654     board/move_exec.py:308(unmake_move)
-    5560982        6.787      0.000      10.199    search/ordering.py:134(pick_next_move)
-    956053         4.688      0.000      5.323     moves/generator.py:224(_gen_queen_moves)
-  251578/571       4.124      0.000     120.286    search/search.py:258(_alpha_beta)
-    956053         3.481      0.000      22.738    moves/generator.py:35(generate_pseudo_legal_moves)
-    1842319        3.231      0.000      3.901     search/evaluation.py:159(get_pawn_hash)
-   84693156        2.849      0.000      2.849     {method 'bit_length' of 'int' objects}
-    956053         2.787      0.000      3.469     moves/generator.py:62(_gen_pawn_moves)
-    956053         2.553      0.000      2.799     moves/generator.py:207(_gen_rook_moves)
-   98467167        2.540      0.000      3.259     search/ordering.py:100(get_move_score)
-    2861656        2.345      0.000      2.345     search/evaluation.py:276(evaluate_king_safety_simple)
+     33762         0.002      0.000      0.002     /opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/threading.py:601(is_set)
+      23           0.001      0.000      0.001     {built-in method builtins.print}
+      16           0.000      0.000      0.000     search/utils.py:55(_get_cp_score)
+       1           0.000      0.000      0.000     {method 'disable' of '_lsprof.Profiler' objects}
+       7           0.000      0.000      0.000     uci/utils.py:4(send_info_string)
+      23           0.000      0.000      0.001     uci/utils.py:1(send_command)
+      16           0.000      0.000      0.000     {built-in method builtins.abs}
+       1           0.000      0.000      0.000     search/syzygy.py:24(get_best_move)
+       2           0.000      0.000      0.000     {built-in method time.time}
+       1           0.000      0.000      0.000     {method 'bit_count' of 'int' objects}
 ----------------------------------------------------------------------------------------------------
 """

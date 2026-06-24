@@ -677,3 +677,20 @@ def get_legal_moves(State state, bint captures_only=False):
             legal.append(move)
 
     return legal
+
+cdef void generate_legal_move_list(State state, MoveList* out, bint captures_only) noexcept:
+    """fill out with fully legal moves (pin/check filtered), no Python list"""
+    cdef MoveList pseudo
+    cdef int i
+    cdef unsigned int move
+
+    if not captures_only and is_in_check(state, state.is_white):
+        generate_check_evasion_move_list(state, &pseudo)
+    else:
+        generate_pseudo_legal_move_list(state, &pseudo, captures_only)
+
+    out.count = 0
+    for i in range(pseudo.count):
+        move = pseudo.moves[i]
+        if is_legal(state, move):
+            _add_move(out, move)

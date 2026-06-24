@@ -19,7 +19,7 @@ while IFS= read -r pyx_file; do
 done < <(find engine -name '*.pyx' -print)
 
 if [ "$needs_build" -eq 1 ]; then
-    echo "Cython extensions not found, building..." >&2
+    echo "cython extensions not found, building..." >&2
     "$PYTHON" setup.py build_ext --inplace --quiet 2>&1 | tail -3 >&2
 fi
 
