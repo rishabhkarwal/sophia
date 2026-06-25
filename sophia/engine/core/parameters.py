@@ -159,7 +159,7 @@ RFP_DEPTH_CAP         = 3
 SNMP_DEPTH_CAP        = 3
 FUTILITY_DEPTH_CAP    = 3
 LMP_DEPTH_CAP         = 4
-SEE_PRUNING_DEPTH_CAP = 3
+SEE_PRUNING_DEPTH_CAP = 0
 
 # reverse futility pruning margin (per depth)
 REVERSE_FUTILITY_MARGIN = 141
